@@ -417,8 +417,14 @@ elif menu == "3. 충격 원인 추적":
     with c2:
         selected_month_label = st.selectbox("기준 연월 선택", month_options, index=get_latest_index(month_options))
 
-    panel_row = panel[(panel["체인구분"] == selected_chain) & (panel["연월_표시"] == selected_month_label)]
-    alert_row = alert[(alert["체인구분"] == selected_chain) & (alert["연월_표시"] == selected_month_label)]
+    panel_row = panel[
+        (panel["체인구분"] == selected_chain) &
+        (panel["연월_표시"] == selected_month_label)
+    ]
+    alert_row = alert[
+        (alert["체인구분"] == selected_chain) &
+        (alert["연월_표시"] == selected_month_label)
+    ]
 
     if panel_row.empty or alert_row.empty:
         st.warning("선택한 조건의 데이터가 없습니다.")
@@ -427,48 +433,177 @@ elif menu == "3. 충격 원인 추적":
     p = panel_row.iloc[0]
     a = alert_row.iloc[0]
 
+    # -------------------------------------------------
+    # 공통 보조 함수
+    # -------------------------------------------------
+    def to_5pt(x):
+        if pd.isna(x):
+            return None
+        return 1 + 0.04 * float(x)
+
+    def get_internal_weight(chain_name, var_name):
+        if entropy is None:
+            return None
+        temp = entropy.copy()
+        temp["체인구분"] = temp["체인구분"].astype(str)
+        temp["변수명"] = temp["변수명"].astype(str)
+
+        rr = temp[
+            (temp["체인구분"] == chain_name) &
+            (temp["구분"] == "내부가중치") &
+            (temp["변수명"] == var_name)
+        ]
+        if rr.empty:
+            return None
+        return pd.to_numeric(rr.iloc[0]["가중치(%)"], errors="coerce")
+
+    # shock_df는 NOMALIZATION_CHECK 우선 사용
     shock_df = norm_check if norm_check is not None else market
     if shock_df is not None:
         shock_df = shock_df.sort_values("연월_sort").copy()
 
+    # =================================================
+    # 1) 가격충격 추이
+    # =================================================
     st.markdown("### 1) 가격충격 추이")
+
     if shock_df is not None:
-        price_norm_cols = [c for c in ["환율정규화", "납가격정규화", "리튬가격정규화", "니켈가격정규화"] if c in shock_df.columns]
+        # 체인별 사용 변수 선택
+        if selected_chain == "납산배터리군":
+            price_norm_cols = [c for c in ["환율정규화", "납가격정규화"] if c in shock_df.columns]
+            price_labels = {
+                "환율정규화": "환율",
+                "납가격정규화": "납가격"
+            }
+        else:
+            price_norm_cols = [c for c in ["환율정규화", "리튬가격정규화", "니켈가격정규화"] if c in shock_df.columns]
+            price_labels = {
+                "환율정규화": "환율",
+                "리튬가격정규화": "리튬가격",
+                "니켈가격정규화": "니켈가격"
+            }
+
+        # 정규화 추이 그래프
         if price_norm_cols:
-            fig1 = px.line(shock_df, x="연월_표시", y=price_norm_cols,
-                           title="가격충격 정규화 지표 추이(원 파일 산식 기준)")
+            plot_df = shock_df[["연월_표시"] + price_norm_cols].copy()
+            plot_df = plot_df.rename(columns=price_labels)
+
+            fig1 = px.line(
+                plot_df,
+                x="연월_표시",
+                y=list(price_labels.values()),
+                title="가격충격 정규화 지표 추이(원 파일 산식 기준)"
+            )
             fig1.update_layout(height=420, xaxis_title="연월", yaxis_title="정규화 지수")
             st.plotly_chart(fig1, use_container_width=True)
 
         sel = shock_df[shock_df["연월_표시"] == selected_month_label]
+
+        price_5pt = None
+        weighted_price_df = None
+
         if not sel.empty:
             sr = sel.iloc[0]
-            d1, d2, d3, d4 = st.columns(4)
-            d1.metric("환율 정규화", fmt_num(sr.get("환율정규화"), 4))
-            d2.metric("납가격 정규화", fmt_num(sr.get("납가격정규화"), 4))
-            d3.metric("리튬가격 정규화", fmt_num(sr.get("리튬가격정규화"), 4))
-            d4.metric("니켈가격 정규화", fmt_num(sr.get("니켈가격정규화"), 4))
 
-    price_5pt = pd.DataFrame({
-        "항목": ["환율", "납가격", "리튬가격", "니켈가격"],
-        "5점 환산값": [
-            p.get("환율정규화_5pt"),
-            p.get("납가격정규화_5pt"),
-            p.get("리튬가격정규화_5pt"),
-            p.get("니켈가격정규화_5pt"),
-        ]
-    })
-    fig1b = px.bar(price_5pt, x="항목", y="5점 환산값", color="항목", text_auto=".2f",
-                   title=f"{selected_month_label} 가격충격 세부 기여도(5점 환산)")
-    fig1b.update_layout(height=380)
-    st.plotly_chart(fig1b, use_container_width=True)
+            # 현재월 정규화 값
+            fx_norm = pd.to_numeric(sr.get("환율정규화"), errors="coerce")
+            lead_norm = pd.to_numeric(sr.get("납가격정규화"), errors="coerce")
+            lithium_norm = pd.to_numeric(sr.get("리튬가격정규화"), errors="coerce")
+            nickel_norm = pd.to_numeric(sr.get("니켈가격정규화"), errors="coerce")
 
+            # 상단 카드
+            if selected_chain == "납산배터리군":
+                d1, d2 = st.columns(2)
+                d1.metric("환율 정규화", fmt_num(fx_norm, 4))
+                d2.metric("납가격 정규화", fmt_num(lead_norm, 4))
+
+                price_5pt = pd.DataFrame({
+                    "항목": ["환율", "납가격"],
+                    "정규화값": [fx_norm, lead_norm],
+                    "5점 환산값": [to_5pt(fx_norm), to_5pt(lead_norm)]
+                })
+
+                fx_w = get_internal_weight(selected_chain, "환율정규화")
+                lead_w = get_internal_weight(selected_chain, "납가격정규화")
+
+                weighted_price_df = pd.DataFrame({
+                    "항목": ["환율", "납가격"],
+                    "내부가중치(%)": [fx_w, lead_w],
+                    "5점 환산값": [to_5pt(fx_norm), to_5pt(lead_norm)]
+                })
+                weighted_price_df["가중 기여도"] = (
+                    weighted_price_df["5점 환산값"] * weighted_price_df["내부가중치(%)"] / 100
+                )
+
+            else:
+                d1, d2, d3 = st.columns(3)
+                d1.metric("환율 정규화", fmt_num(fx_norm, 4))
+                d2.metric("리튬가격 정규화", fmt_num(lithium_norm, 4))
+                d3.metric("니켈가격 정규화", fmt_num(nickel_norm, 4))
+
+                price_5pt = pd.DataFrame({
+                    "항목": ["환율", "리튬가격", "니켈가격"],
+                    "정규화값": [fx_norm, lithium_norm, nickel_norm],
+                    "5점 환산값": [to_5pt(fx_norm), to_5pt(lithium_norm), to_5pt(nickel_norm)]
+                })
+
+                fx_w = get_internal_weight(selected_chain, "환율정규화")
+                li_w = get_internal_weight(selected_chain, "리튬가격정규화")
+                ni_w = get_internal_weight(selected_chain, "니켈가격정규화")
+
+                weighted_price_df = pd.DataFrame({
+                    "항목": ["환율", "리튬가격", "니켈가격"],
+                    "내부가중치(%)": [fx_w, li_w, ni_w],
+                    "5점 환산값": [to_5pt(fx_norm), to_5pt(lithium_norm), to_5pt(nickel_norm)]
+                })
+                weighted_price_df["가중 기여도"] = (
+                    weighted_price_df["5점 환산값"] * weighted_price_df["내부가중치(%)"] / 100
+                )
+
+        # 5점 환산 막대
+        if price_5pt is not None:
+            fig1b = px.bar(
+                price_5pt,
+                x="항목",
+                y="5점 환산값",
+                color="항목",
+                text_auto=".2f",
+                title=f"{selected_month_label} 가격충격 세부 기여도(5점 환산)"
+            )
+            fig1b.update_layout(height=380, yaxis_title="5점 환산값")
+            st.plotly_chart(fig1b, use_container_width=True)
+
+        # 내부가중치 반영 기여도
+        if weighted_price_df is not None:
+            fig1c = px.bar(
+                weighted_price_df,
+                x="항목",
+                y="가중 기여도",
+                color="항목",
+                text_auto=".2f",
+                title=f"{selected_month_label} 가격충격 내부가중치 반영 기여도"
+            )
+            fig1c.update_layout(height=380, yaxis_title="가중 기여도")
+            st.plotly_chart(fig1c, use_container_width=True)
+
+            with st.expander("가격충격 세부 계산표 보기"):
+                st.dataframe(weighted_price_df, use_container_width=True)
+
+    # =================================================
+    # 2) 정책이벤트 추이
+    # =================================================
     st.markdown("### 2) 정책이벤트 추이")
     if tpu is not None:
         tpu_plot = tpu.sort_values("연월_sort").copy()
+
         if "원천_TPU_INDEX" in tpu_plot.columns:
-            fig2 = px.line(tpu_plot, x="연월_표시", y="원천_TPU_INDEX", markers=True,
-                           title="TPU(통상정책 불확실성) 추이")
+            fig2 = px.line(
+                tpu_plot,
+                x="연월_표시",
+                y="원천_TPU_INDEX",
+                markers=True,
+                title="TPU(통상정책 불확실성) 추이"
+            )
             fig2.update_layout(height=380, xaxis_title="연월", yaxis_title="TPU 지수")
             st.plotly_chart(fig2, use_container_width=True)
 
@@ -480,12 +615,21 @@ elif menu == "3. 충격 원인 추적":
             t2.metric("이벤트 보정", fmt_num(tr.get("이벤트보정"), 2))
             st.write(f"**서사 배경:** {tr.get('서사배경', '-')}")
 
+    # =================================================
+    # 3) 물류충격 추이
+    # =================================================
     st.markdown("### 3) 물류충격 추이")
     if gscpi is not None:
         g_plot = gscpi.sort_values("연월_sort").copy()
+
         if "GSCPI_NORM" in g_plot.columns:
-            fig3 = px.line(g_plot, x="연월_표시", y="GSCPI_NORM", markers=True,
-                           title="GSCPI 정규화 추이")
+            fig3 = px.line(
+                g_plot,
+                x="연월_표시",
+                y="GSCPI_NORM",
+                markers=True,
+                title="GSCPI 정규화 추이"
+            )
             fig3.update_layout(height=380, xaxis_title="연월", yaxis_title="정규화 지수")
             st.plotly_chart(fig3, use_container_width=True)
 
@@ -496,23 +640,63 @@ elif menu == "3. 충격 원인 추적":
             g1.metric("GSCPI", fmt_num(gr.get("GSCPI"), 2))
             g2.metric("GSCPI 정규화", fmt_num(gr.get("GSCPI_NORM"), 2))
 
+    # =================================================
+    # 4) 리스크 기여도 종합
+    # =================================================
     st.markdown("### 4) 리스크 기여도 종합")
     risk_df = pd.DataFrame({
         "유형": ["가격", "수급", "물류", "정책이벤트"],
-        "점수": [a.get("가격리스크점수"), a.get("수급리스크점수"), a.get("물류리스크점수"), a.get("정책이벤트리스크점수")]
+        "점수": [
+            a.get("가격리스크점수"),
+            a.get("수급리스크점수"),
+            a.get("물류리스크점수"),
+            a.get("정책이벤트리스크점수")
+        ]
     }).sort_values("점수", ascending=False)
 
-    fig4 = px.bar(risk_df, x="유형", y="점수", color="유형", text_auto=".2f",
-                  title=f"{selected_month_label} 최종 리스크 기여도")
+    fig4 = px.bar(
+        risk_df,
+        x="유형",
+        y="점수",
+        color="유형",
+        text_auto=".2f",
+        title=f"{selected_month_label} 최종 리스크 기여도"
+    )
     fig4.update_layout(height=380)
     st.plotly_chart(fig4, use_container_width=True)
 
     dominant = risk_df.iloc[0]["유형"]
 
+    # 가격충격 설명문용 값 추출
+    if price_5pt is not None:
+        val_map = dict(zip(price_5pt["항목"], price_5pt["5점 환산값"]))
+    else:
+        val_map = {}
+
     st.markdown("### 분석 의의")
-    st.write(f"- {selected_month_label} 기준 {selected_chain}의 최종위험점수는 **{fmt_num(a.get('최종위험점수'))}점**이며, 핵심 상승요인은 **{dominant} 리스크**로 해석됩니다.")
-    st.write(f"- 가격충격 세부항목의 5점 환산 결과는 환율 **{fmt_num(p.get('환율정규화_5pt'))}**, 납가격 **{fmt_num(p.get('납가격정규화_5pt'))}**, 리튬가격 **{fmt_num(p.get('리튬가격정규화_5pt'))}**, 니켈가격 **{fmt_num(p.get('니켈가격정규화_5pt'))}**입니다.")
-    st.write(f"- 물류충격은 GSCPI 정규화값 **{fmt_num(p.get('GSCPI_Norm'))}** 및 5점 환산값 **{fmt_num(p.get('GSCPI_Norm_5pt'))}**로 반영되며, 정책이벤트 충격은 TPU 지수 및 이벤트 보정에 기반한 **{fmt_num(p.get('TPU_Norm_5pt'))}점 수준**으로 반영됩니다.")
+    st.write(
+        f"- {selected_month_label} 기준 {selected_chain}의 최종위험점수는 **{fmt_num(a.get('최종위험점수'))}점**이며, "
+        f"핵심 상승요인은 **{dominant} 리스크**로 해석됩니다."
+    )
+
+    if selected_chain == "납산배터리군":
+        st.write(
+            f"- 가격충격 세부항목의 5점 환산 결과는 "
+            f"환율 **{fmt_num(val_map.get('환율'))}**, "
+            f"납가격 **{fmt_num(val_map.get('납가격'))}**입니다."
+        )
+    else:
+        st.write(
+            f"- 가격충격 세부항목의 5점 환산 결과는 "
+            f"환율 **{fmt_num(val_map.get('환율'))}**, "
+            f"리튬가격 **{fmt_num(val_map.get('리튬가격'))}**, "
+            f"니켈가격 **{fmt_num(val_map.get('니켈가격'))}**입니다."
+        )
+
+    st.write(
+        f"- 물류충격은 GSCPI 정규화값을 기반으로 해석되며, "
+        f"정책이벤트 충격은 TPU 지수와 이벤트 보정 및 서사배경을 통해 설명됩니다."
+    )
 
     if dominant == "정책이벤트":
         st.write("- 이는 통상정책 변화 또는 지정학적 이벤트가 공급망에 선행 압력으로 작용했음을 시사하며, 향후 2~3개월 내 대체국 확보와 조달선 재점검이 필요함을 의미합니다.")
@@ -522,6 +706,7 @@ elif menu == "3. 충격 원인 추적":
         st.write("- 이는 환율 및 원자재 가격 변동이 수입단가와 비용 구조에 직접적인 압력을 가하고 있음을 시사하며, 향후 1~2개월 내 선매입, 계약단가 조정, 가격헤지 검토가 필요함을 의미합니다.")
     else:
         st.write("- 이는 공급집중 구조와 국가별 보정요인이 복합적으로 작용했음을 의미하며, 향후 2~3개월 내 수입선 다변화와 FTA 활용 확대 전략이 필요합니다.")
+
 
 # =========================================================
 # 4. 국가위험 근거 보기
