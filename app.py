@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 
 st.set_page_config(
     page_title="배터리 공급망 조기경보·대응 의사결정 시스템",
@@ -15,13 +16,22 @@ st.markdown("""
 <style>
 .small-note {font-size: 0.88rem; color: #B8C0CC;}
 .section-gap {margin-top: 1.2rem; margin-bottom: 0.5rem;}
-.badge-red {
-    display:inline-block; padding:0.18rem 0.55rem; border-radius:0.5rem;
-    background:#5c1f1f; color:#ffd7d7; font-weight:600;
+.alert-box {
+    padding: 0.45rem 0.75rem;
+    border-radius: 0.5rem;
+    font-weight: 700;
+    display: inline-block;
+    margin-bottom: 0.35rem;
 }
-.badge-gray {
-    display:inline-block; padding:0.18rem 0.55rem; border-radius:0.5rem;
-    background:#2f3640; color:#d8dee9; font-weight:600;
+.alert-normal {background:#1f4d2e; color:#d8ffe5;}
+.alert-caution {background:#5d4a16; color:#fff1c2;}
+.alert-warning {background:#6b3710; color:#ffe4c9;}
+.alert-critical {background:#641b1b; color:#ffd6d6;}
+.info-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    padding: 0.7rem 0.9rem;
+    border-radius: 0.5rem;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -49,7 +59,6 @@ def parse_ym_value(v):
         left, right = s.split(".", 1)
         left = "".join(ch for ch in left if ch.isdigit())
         right = right.strip()
-
         if len(left) == 4:
             y = int(left)
 
@@ -89,6 +98,12 @@ def fmt_num(x, d=2):
     if pd.isna(x):
         return "-"
     return f"{float(x):,.{d}f}"
+
+
+def fmt_int(x):
+    if pd.isna(x):
+        return "-"
+    return f"{int(round(float(x))):,}"
 
 
 def safe_numeric(df, cols):
@@ -172,6 +187,37 @@ def get_entropy_weight(entropy_df, chain, var_name):
     return pd.to_numeric(rr.iloc[0]["가중치(%)"], errors="coerce")
 
 
+def alert_color(label):
+    s = str(label).strip()
+    if s in ["정상", "낮음"]:
+        return "#2E8B57"
+    if s in ["주의", "보통"]:
+        return "#D4A017"
+    if s in ["경계", "높음"]:
+        return "#E67E22"
+    if s in ["심각", "취약", "매우높음"]:
+        return "#D64545"
+    return "#7f8c8d"
+
+
+def alert_class(label):
+    s = str(label).strip()
+    if s in ["정상", "낮음"]:
+        return "alert-normal"
+    if s in ["주의", "보통"]:
+        return "alert-caution"
+    if s in ["경계", "높음"]:
+        return "alert-warning"
+    if s in ["심각", "취약", "매우높음"]:
+        return "alert-critical"
+    return "alert-caution"
+
+
+def render_alert_badge(label):
+    css = alert_class(label)
+    return f'<div class="alert-box {css}">{label}</div>'
+
+
 # =========================================================
 # 2. 데이터 로드
 # =========================================================
@@ -188,9 +234,8 @@ def load_data(uploaded_file):
 
     numeric_targets = {
         "PANEL_MONTHLY": [
-            "총수입금액", "총수입물량", "평균수입단가",
-            "상위1국의존도", "상위3국집중도", "HHI", "수입국수", "CV",
-            "경보점수기초", "국가보정합계",
+            "총수입금액", "총수입물량", "평균수입단가", "상위1국의존도", "상위3국집중도",
+            "HHI", "수입국수", "CV", "경보점수기초", "국가보정합계",
             "환율정규화", "납가격정규화", "리튬가격정규화", "니켈가격정규화",
             "GSCPI", "GSCPI_Norm", "원천_TPU_INDEX", "TPU_Norm",
             "환율정규화_5pt", "납가격정규화_5pt", "리튬가격정규화_5pt", "니켈가격정규화_5pt",
@@ -276,8 +321,7 @@ def load_data(uploaded_file):
 
 
 # =========================================================
-# 3. 선행 신호 탐지
-#    x(t) -> y(t+lag), lag=1~3만 사용
+# 3. 선행 신호 후보 탐지
 # =========================================================
 def corr_strength_label(corr):
     if pd.isna(corr):
@@ -305,7 +349,7 @@ def build_lead_interpretation(x_col, y_col, lag, corr):
 
     return (
         f"{x_col}가 약 {lag}개월 선행하는 구간에서 {y_col}와 {direction} 연동성이 관찰됩니다. "
-        f"이는 인과 확정이 아니라 향후 {lag}개월 내 선제 모니터링 우선순위를 제시하는 보조 신호입니다."
+        f"이는 인과 확정이 아니라 향후 {lag}개월 내 모니터링 우선순위를 제시하는 보조 신호입니다."
     )
 
 
@@ -334,12 +378,10 @@ def calc_forward_lag_corr(df, x_col, y_col, lags=(1, 2, 3)):
 
 def get_lead_candidates(chain_name, df):
     base = ["TPU_Norm", "GSCPI_Norm", "국가보정합계", "HHI", "상위1국의존도", "CV", "환율정규화"]
-
     if chain_name == "납산배터리군":
         base += ["납가격정규화"]
     else:
         base += ["리튬가격정규화", "니켈가격정규화"]
-
     return [c for c in base if c in df.columns]
 
 
@@ -354,14 +396,12 @@ def make_lead_table(panel_sub, chain_name, future_target):
             continue
 
         best = valid.loc[valid["corr"].abs().idxmax()]
-        strength = corr_strength_label(best["corr"])
-
         rows.append({
             "선행변수": x_col,
             "미래반응지표": future_target,
             "최대연동 시차(개월)": int(best["lag_month"]),
             "상관계수": round(float(best["corr"]), 4),
-            "강도": strength,
+            "강도": corr_strength_label(best["corr"]),
             "표본수": int(best["n_obs"]),
             "해석": build_lead_interpretation(x_col, future_target, int(best["lag_month"]), float(best["corr"]))
         })
@@ -379,7 +419,7 @@ def make_lead_table(panel_sub, chain_name, future_target):
 # =========================================================
 # 4. 국가 리스크 / 대체국 추천
 # =========================================================
-def build_country_risk_profile(country_monthly_df, risk_master_df, conflict_df, chain, month, country_code):
+def build_country_risk_profile(country_monthly_df, risk_master_df, country_risk_yearly_df, conflict_df, chain, month, country_code):
     sub = country_monthly_df[
         (country_monthly_df["체인구분"] == chain) &
         (country_monthly_df["연월_표시"] == month) &
@@ -387,7 +427,7 @@ def build_country_risk_profile(country_monthly_df, risk_master_df, conflict_df, 
     ].copy()
 
     if sub.empty:
-        return None, pd.DataFrame(), pd.DataFrame()
+        return None, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     year = int(sub["연도_std"].dropna().iloc[0])
 
@@ -412,6 +452,16 @@ def build_country_risk_profile(country_monthly_df, risk_master_df, conflict_df, 
             (risk_master_df["Year"] == year)
         ].copy()
 
+    cy = pd.DataFrame()
+    if country_risk_yearly_df is not None and not country_risk_yearly_df.empty:
+        possible_cols = [c for c in country_risk_yearly_df.columns if c.lower() in ["country_code", "국가코드", "code"]]
+        if possible_cols:
+            cc = possible_cols[0]
+            tmp = country_risk_yearly_df.copy()
+            tmp[cc] = tmp[cc].astype(str).str.upper().str.strip()
+            if "연도" in tmp.columns:
+                cy = tmp[(tmp[cc] == country_code) & (tmp["연도"] == year)].copy()
+
     cf = pd.DataFrame()
     if conflict_df is not None and not conflict_df.empty and not rm.empty:
         en_name = rm["Country"].iloc[0]
@@ -420,7 +470,7 @@ def build_country_risk_profile(country_monthly_df, risk_master_df, conflict_df, 
             (conflict_df["국가명"].astype(str) == str(en_name))
         ].copy()
 
-    return base, rm, cf
+    return base, rm, cy, cf
 
 
 def build_country_explanation(base, rm):
@@ -634,13 +684,13 @@ def get_validation_rules():
             "critical_numeric": ["환율정규화", "GSCPI_Norm", "TPU_Norm"]
         },
         "COUNTRY_MONTHLY": {
-            "key": ["연월_표시", "체인구분", "국가코드", "HS코드"],
+            "key": ["연월_표시", "체인구분", "국가코드"],
             "required": ["연월", "체인구분", "국가코드", "국가명", "최종보정점수"],
             "critical_numeric": ["국가수입금액", "국가별수입비중", "최종보정점수"]
         },
         "HS_MONTHLY_SUMMARY": {
             "key": ["연월_표시", "체인구분", "HS코드"],
-            "required": ["연월", "체인구분", "HS코드", "총수입금액"],
+            "required": ["연월", "체인구분", "총수입금액"],
             "critical_numeric": ["총수입금액", "총수입중량", "평균수입단가"]
         },
         "TPU_INDEX": {
@@ -677,8 +727,9 @@ def validate_sheet(name, df, rules):
     result["필수컬럼누락수"] = len(missing_cols)
     result["검증키"] = " + ".join(key_cols) if key_cols else None
 
-    if key_cols and all(c in df.columns for c in key_cols):
-        result["중복키수"] = int(df.duplicated(key_cols).sum())
+    exist_key = [c for c in key_cols if c in df.columns]
+    if exist_key and len(exist_key) == len(key_cols):
+        result["중복키수"] = int(df.duplicated(exist_key).sum())
 
     exist_num_cols = [c for c in num_cols if c in df.columns]
     if exist_num_cols:
@@ -691,7 +742,7 @@ def validate_sheet(name, df, rules):
 # 7. 앱 시작
 # =========================================================
 st.title("🔎 배터리 공급망 조기경보·대응 의사결정 시스템")
-st.caption("위험 진단 · 원인 설명 · 선행 신호 탐지 · 대체국 추천 · 대응 시뮬레이션")
+st.caption("위험 진단 · 원인 설명 · 선행 신호 후보 탐지 · 대체국 추천 · 대응 시뮬레이션")
 
 uploaded_file = st.file_uploader("최종 엑셀 파일 업로드", type=["xlsx"])
 
@@ -709,6 +760,7 @@ norm_check = sheets.get("NOMALIZATION_CHECK")
 country = sheets.get("COUNTRY_MONTHLY")
 tpu = sheets.get("TPU_INDEX")
 risk_master = sheets.get("RISK_MASTER")
+country_risk_yearly = sheets.get("Country_Risk_Yearly")
 conflict = sheets.get("Conflict_Detail")
 hs = sheets.get("HS_MONTHLY_SUMMARY")
 
@@ -726,7 +778,6 @@ if missing:
 
 months = sorted(panel["연월_표시"].dropna().unique().tolist())
 chains = sorted(panel["체인구분"].dropna().unique().tolist())
-latest_month = months[-1] if months else None
 
 st.sidebar.title("분석 메뉴")
 menu = st.sidebar.radio(
@@ -735,7 +786,7 @@ menu = st.sidebar.radio(
         "1. 종합 상황판",
         "2. 체인별 심층 분석",
         "3. 충격 원인 추적",
-        "4. 선행 신호 탐지",
+        "4. 선행 신호 후보 탐지",
         "5. 기업 대응 시뮬레이터",
         "6. 대체국 추천 시스템",
         "7. 데이터 검증 / 방법론",
@@ -778,13 +829,34 @@ if menu == "1. 종합 상황판":
         delta=None if delta_avg is None else fmt_num(delta_avg, 2)
     )
 
+    st.caption("※ 평균 최종위험점수의 증감은 선택한 기준월과 직전월 평균을 비교한 값입니다.")
+
+    if "최종경보등급" in curr.columns:
+        st.markdown("### 경보등급 색상 기준")
+        cols = st.columns(4)
+        with cols[0]:
+            st.markdown(render_alert_badge("정상"), unsafe_allow_html=True)
+        with cols[1]:
+            st.markdown(render_alert_badge("주의"), unsafe_allow_html=True)
+        with cols[2]:
+            st.markdown(render_alert_badge("경계"), unsafe_allow_html=True)
+        with cols[3]:
+            st.markdown(render_alert_badge("심각"), unsafe_allow_html=True)
+
     fig = px.bar(
         curr.sort_values("최종위험점수", ascending=False),
         x="체인구분",
         y="최종위험점수",
-        color="최종경보등급",
+        color="최종경보등급" if "최종경보등급" in curr.columns else "체인구분",
         text_auto=".2f",
-        title=f"{selected_dashboard_month} 체인별 최종위험점수"
+        title=f"{selected_dashboard_month} 체인별 최종위험점수",
+        color_discrete_map={
+            "정상": "#2E8B57",
+            "주의": "#D4A017",
+            "경계": "#E67E22",
+            "심각": "#D64545",
+            "취약": "#D64545"
+        }
     )
     fig.update_layout(height=420, xaxis_title="체인구분", yaxis_title="최종위험점수")
     st.plotly_chart(fig, use_container_width=True)
@@ -825,7 +897,8 @@ elif menu == "2. 체인별 심층 분석":
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("최신 최종위험점수", fmt_num(latest_score, 2), None if delta_score is None else fmt_num(delta_score, 2))
-    k2.metric("최신 경보등급", latest["최종경보등급"])
+    k2.markdown(render_alert_badge(latest["최종경보등급"]), unsafe_allow_html=True)
+    k2.caption("최신 경보등급")
     k3.metric("대체조달가능성", latest["대체조달가능성"])
     k4.metric("FTA 활용비중", fmt_num(latest["fta_ratio"], 2))
 
@@ -833,10 +906,14 @@ elif menu == "2. 체인별 심층 분석":
         a, x="연월_표시", y="최종위험점수", markers=True,
         title=f"{chain} 최종위험점수 추이"
     )
-    fig1.update_layout(height=320, xaxis_title="연월", yaxis_title="최종위험점수")
+    fig1.update_layout(
+        height=320,
+        xaxis_title="연월",
+        yaxis_title="최종위험점수",
+        xaxis=dict(tickangle=-45)
+    )
     st.plotly_chart(fig1, use_container_width=True)
 
-    # 구조취약도: 정규화해서 표시
     structural_cols = [c for c in ["HHI", "상위1국의존도", "국가보정합계", "CV"] if c in p.columns]
     if structural_cols:
         norm_df = p[["연월_표시"] + structural_cols].copy()
@@ -849,8 +926,14 @@ elif menu == "2. 체인별 심층 분석":
             y=structural_cols,
             title=f"{chain} 구조 취약도 추이(정규화, 0~100)"
         )
-        fig2.update_layout(height=320, xaxis_title="연월", yaxis_title="정규화 지표")
+        fig2.update_layout(
+            height=320,
+            xaxis_title="연월",
+            yaxis_title="정규화 지표",
+            xaxis=dict(tickangle=-45)
+        )
         st.plotly_chart(fig2, use_container_width=True)
+        st.caption("※ 값의 절대크기가 아니라 각 지표의 상대적 상승·하강 흐름 비교에 초점을 둔 정규화 추이입니다.")
 
     risk_cols = [c for c in ["가격리스크점수", "수급리스크점수", "물류리스크점수", "정책이벤트리스크점수"] if c in p.columns]
     if risk_cols:
@@ -858,10 +941,36 @@ elif menu == "2. 체인별 심층 분석":
             p, x="연월_표시", y=risk_cols,
             title=f"{chain} 4대 리스크 추이"
         )
-        fig3.update_layout(height=320, xaxis_title="연월", yaxis_title="리스크점수")
+        fig3.update_layout(
+            height=320,
+            xaxis_title="연월",
+            yaxis_title="리스크점수",
+            xaxis=dict(tickangle=-45)
+        )
         st.plotly_chart(fig3, use_container_width=True)
 
-    st.caption("※ 구조취약도 추이는 HHI·상위1국의존도·국가보정합계·CV의 단위 차이가 커서, 비교 가능하도록 0~100 정규화하여 표시했습니다.")
+    if hs is not None and not hs.empty:
+        st.markdown("### HS 기준 월별 요약 활용")
+        hs_sub = hs[(hs["체인구분"] == chain)].copy()
+        if not hs_sub.empty:
+            latest_hs_month = hs_sub["연월_표시"].dropna().max()
+            hs_latest = hs_sub[hs_sub["연월_표시"] == latest_hs_month].copy()
+
+            candidate_cols = [c for c in hs_latest.columns if c in ["HS코드", "HS_Code", "품목명", "품목", "HS명"]]
+            key_col = candidate_cols[0] if candidate_cols else None
+
+            if key_col and "총수입금액" in hs_latest.columns:
+                top_hs = hs_latest.sort_values("총수입금액", ascending=False).head(10)
+                fig_hs = px.bar(
+                    top_hs.sort_values("총수입금액"),
+                    x="총수입금액",
+                    y=key_col,
+                    orientation="h",
+                    text_auto=".2s",
+                    title=f"{latest_hs_month} {chain} HS/품목별 수입금액 상위"
+                )
+                fig_hs.update_layout(height=360, xaxis_title="총수입금액", yaxis_title=key_col)
+                st.plotly_chart(fig_hs, use_container_width=True)
 
 # =========================================================
 # 3. 충격 원인 추적
@@ -900,6 +1009,8 @@ elif menu == "3. 충격 원인 추적":
     )
     fig.update_layout(height=350, xaxis_title="리스크유형", yaxis_title="점수")
     st.plotly_chart(fig, use_container_width=True)
+
+    st.write(f"선택한 {month}의 {chain}은(는) **{risk_df.iloc[0]['리스크유형']} 리스크** 기여도가 가장 높게 나타났습니다.")
 
     st.markdown("### 가격 내부요인 분해")
     if chain == "납산배터리군":
@@ -954,9 +1065,11 @@ elif menu == "3. 충격 원인 추적":
             selected = st.selectbox("국가 선택", options.tolist())
             code = selected.split(" | ")[0]
 
-            base, rm, cf = build_country_risk_profile(country, risk_master, conflict, chain, month, code)
+            base, rm, cy, cf = build_country_risk_profile(
+                country, risk_master, country_risk_yearly, conflict, chain, month, code
+            )
 
-            st.caption("※ 국가별수입비중·보정점수는 선택한 연월 기준이며, 외부 국가리스크 점수(Composite/WGI/GPI/UCDP/ACLED)는 해당 연도 기준입니다.")
+            st.info("국가별수입비중·기본/총/최종보정점수는 선택한 연월 기준이며, Composite/WGI/GPI/UCDP/ACLED 등 외부 국가리스크 지표는 해당 연도의 연간 기준값입니다.")
 
             if base:
                 b1, b2, b3, b4 = st.columns(4)
@@ -964,7 +1077,6 @@ elif menu == "3. 충격 원인 추적":
                 b2.metric("기본평가점수", fmt_num(base.get("기본평가점수"), 2))
                 b3.metric("총보정점수", fmt_num(base.get("총보정점수"), 2))
                 b4.metric("최종보정점수", fmt_num(base.get("최종보정점수"), 2))
-
                 st.caption(build_country_explanation(base, rm))
 
             if rm is not None and not rm.empty:
@@ -978,6 +1090,16 @@ elif menu == "3. 충격 원인 추적":
                 ]
                 st.dataframe(rm[show_rm], use_container_width=True)
 
+            if cy is not None and not cy.empty:
+                st.markdown("#### 연간 분쟁·안정성 보조 근거")
+                show_cy = [
+                    c for c in [
+                        "연도", "기본위험점수", "분쟁건수", "고유분쟁수",
+                        "최고분쟁강도", "평균분쟁강도", "개별분쟁점수합"
+                    ] if c in cy.columns
+                ]
+                st.dataframe(cy[show_cy], use_container_width=True)
+
             if cf is not None and not cf.empty:
                 st.markdown("#### 최근 분쟁/갈등 근거")
                 show_cf = [
@@ -987,10 +1109,10 @@ elif menu == "3. 충격 원인 추적":
                 st.dataframe(cf[show_cf].head(10), use_container_width=True)
 
 # =========================================================
-# 4. 선행 신호 탐지
+# 4. 선행 신호 후보 탐지
 # =========================================================
-elif menu == "4. 선행 신호 탐지":
-    st.header("4. 선행 신호 탐지")
+elif menu == "4. 선행 신호 후보 탐지":
+    st.header("4. 선행 신호 후보 탐지")
 
     chain = st.selectbox("체인 선택", chains, key="lead_chain")
 
@@ -1001,22 +1123,34 @@ elif menu == "4. 선행 신호 탐지":
     )
 
     p = panel[panel["체인구분"] == chain].sort_values("연월_sort").copy()
-
     lead = make_lead_table(p, chain, future_target)
 
     if lead.empty:
         st.warning("분석 가능한 선행신호가 부족합니다.")
     else:
         st.markdown("### 선행 신호 후보 요약")
-        st.dataframe(lead, use_container_width=True)
 
-        st.caption("해석 원칙: 본 메뉴는 lag 0을 제외하고, x(t)와 y(t+1~3)의 상관만 계산합니다. 즉 현재월 동행성이 아니라 향후 1~3개월 선행 신호만 탐지합니다.")
+        show_weak = st.checkbox("약한 신호까지 전체 보기", value=False)
 
-        meaningful = lead[lead["강도"].isin(["강함", "보통"])].copy()
-        if meaningful.empty:
-            st.info("현재 선택한 미래 반응지표에 대해 절댓값 기준 0.3 이상인 뚜렷한 선행 신호가 많지 않아, 참고용 수준으로 해석하는 것이 적절합니다.")
+        if show_weak:
+            st.dataframe(lead, use_container_width=True)
+            lead_for_select = lead.copy()
+        else:
+            filtered_lead = lead[lead["강도"].isin(["강함", "보통"])].copy()
+            if filtered_lead.empty:
+                st.info("강함/보통 수준의 선행 신호는 많지 않아, 현재는 참고용 수준으로 해석하는 것이 적절합니다.")
+                st.dataframe(lead, use_container_width=True)
+                lead_for_select = lead.copy()
+            else:
+                st.dataframe(filtered_lead, use_container_width=True)
+                lead_for_select = filtered_lead.copy()
 
-        xcol = st.selectbox("선행변수 선택", lead["선행변수"].tolist())
+        st.caption("해석 원칙: 본 메뉴는 `lag 0`(동일 월 상관)을 제외하고, 현재월 변수 `x(t)`와 미래 1~3개월 후 반응지표 `y(t+1)`, `y(t+2)`, `y(t+3)` 간의 시차 상관만 계산합니다.")
+        st.caption("즉 현재월 동행성이 아니라, 향후 1~3개월 선행 가능성이 있는 모니터링 후보 신호를 탐지하기 위한 메뉴입니다.")
+        st.caption("※ 이는 인과관계를 확정하는 분석이 아니라, 미래 위험지표와 상대적으로 높은 시차 연동성을 보이는 변수를 식별하기 위한 보조 분석입니다.")
+        st.caption("※ `lag 0`을 제외한 이유는 일부 변수(예: 환율, GSCPI, TPU)가 현재월 위험점수 산식에 직접 반영되어 동일 월 상관이 기계적으로 높아질 수 있기 때문입니다.")
+
+        xcol = st.selectbox("선행변수 선택", lead_for_select["선행변수"].tolist())
         corr_df = calc_forward_lag_corr(p, xcol, future_target, lags=(1, 2, 3))
         corr_df["강도"] = corr_df["corr"].apply(corr_strength_label)
 
@@ -1026,10 +1160,22 @@ elif menu == "4. 선행 신호 탐지":
             y="corr",
             color="강도",
             text_auto=".3f",
-            title=f"{xcol}(t) → {future_target}(t+lag) 시차별 상관"
+            title=f"{xcol}(t) → {future_target}(t+lag) 시차별 상관",
+            color_discrete_map={"강함": "#D64545", "보통": "#D4A017", "약함": "#6FA8DC", "판단불가": "#7f8c8d"}
         )
-        fig.update_layout(height=350, xaxis_title="선행 개월 수", yaxis_title="상관계수")
+        fig.update_layout(
+            height=350,
+            xaxis_title="선행 개월 수",
+            yaxis_title="상관계수"
+        )
+        fig.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray")
         st.plotly_chart(fig, use_container_width=True)
+
+        st.caption("※ 그래프의 중앙 기준선(0)은 상관계수의 부호를 구분하는 기준입니다. 0보다 위는 양(+)의 상관, 아래는 음(-)의 상관을 의미합니다.")
+
+        valid_obs = corr_df["n_obs"].dropna()
+        if not valid_obs.empty and valid_obs.min() < 12:
+            st.warning("일부 시차 구간은 표본수가 충분하지 않을 수 있으므로 해석에 주의가 필요합니다.")
 
         best = corr_df.dropna(subset=["corr"])
         if not best.empty:
@@ -1077,6 +1223,20 @@ elif menu == "5. 기업 대응 시뮬레이터":
     })
     st.dataframe(sim_df, use_container_width=True)
 
+    chart_df = sim_df.copy()
+    chart_df_m = chart_df.melt(id_vars="지표", value_vars=["현재", "시뮬레이션"], var_name="구분", value_name="값")
+    fig_sim = px.bar(
+        chart_df_m,
+        x="지표",
+        y="값",
+        color="구분",
+        barmode="group",
+        text_auto=".2f",
+        title=f"{chain} / {month} 대응 시나리오 전후 비교"
+    )
+    fig_sim.update_layout(height=380, xaxis_title="지표", yaxis_title="값")
+    st.plotly_chart(fig_sim, use_container_width=True)
+
     st.markdown("### 실행 해석")
     st.write("- 상위 공급국 집중 완화, FTA 활용 확대, 대체조달 역량 강화는 최종위험점수 완화에 유효한 방향입니다.")
     st.write("- 실무에서는 발주 분산, 신규 공급국 검토, 재고·비축 전략, 계약 구조 조정의 참고 시나리오로 활용할 수 있습니다.")
@@ -1104,8 +1264,6 @@ elif menu == "6. 대체국 추천 시스템":
                 "FTA여부", "유지추천점수", "유지추천사유"
             ] if c in keep_df.columns]
             st.dataframe(keep_df[cols], use_container_width=True)
-        else:
-            st.info("유지 추천국 데이터가 없습니다.")
 
         st.markdown("### 2) 확대 후보국")
         if not expand_df.empty:
@@ -1122,12 +1280,12 @@ elif menu == "6. 대체국 추천 시스템":
                 y="국가명",
                 orientation="h",
                 text_auto=".2f",
-                title=f"{chain} / {month} 확대 후보국 우선순위"
+                title=f"{chain} / {month} 확대 후보국 우선순위",
+                color="확대추천점수",
+                color_continuous_scale="Blues"
             )
             fig.update_layout(height=350, xaxis_title="확대추천점수", yaxis_title="국가명")
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("확대 후보국 데이터가 없습니다.")
 
         st.markdown("### 3) 축소 검토국")
         if not reduce_df.empty:
@@ -1137,15 +1295,24 @@ elif menu == "6. 대체국 추천 시스템":
                 "FTA여부", "축소검토점수", "축소검토사유"
             ] if c in reduce_df.columns]
             st.dataframe(reduce_df[cols], use_container_width=True)
-        else:
-            st.info("축소 검토국 데이터가 없습니다.")
+
+            fig_r = px.bar(
+                reduce_df.sort_values("축소검토점수"),
+                x="축소검토점수",
+                y="국가명",
+                orientation="h",
+                text_auto=".2f",
+                title=f"{chain} / {month} 축소 검토국 우선순위",
+                color="축소검토점수",
+                color_continuous_scale="Reds"
+            )
+            fig_r.update_layout(height=320, xaxis_title="축소검토점수", yaxis_title="국가명")
+            st.plotly_chart(fig_r, use_container_width=True)
 
         st.markdown("### 추천 로직 요약")
-        st.write(
-            "- **유지 추천국**: 기존 거래 실적, 안정성, FTA 활용성을 종합 고려한 안정 조달국  \n"
-            "- **확대 후보국**: 현재 비중이 과도하지 않으면서 집중도 완화 효과가 큰 국가  \n"
-            "- **축소 검토국**: 현재 비중이 높고 내부·외부 위험 부담이 큰 국가"
-        )
+        st.write("- **유지 추천국**: 기존 거래 실적, 안정성, FTA 활용성을 종합 고려한 안정 조달국")
+        st.write("- **확대 후보국**: 현재 비중이 과도하지 않으면서 집중도 완화 효과가 큰 국가")
+        st.write("- **축소 검토국**: 현재 비중이 높고 내부·외부 위험 부담이 큰 국가")
 
 # =========================================================
 # 7. 데이터 검증 / 방법론
@@ -1171,7 +1338,7 @@ elif menu == "7. 데이터 검증 / 방법론":
 
     st.markdown("### 검증 해석 유의사항")
     st.write("- `PANEL_MONTHLY`, `ALERT_RESULT`는 `연월 + 체인구분`이 유일키입니다.")
-    st.write("- `COUNTRY_MONTHLY`는 국가·HS 단위 시트이므로 `연월 + 체인구분`만으로 중복을 보면 안 됩니다.")
+    st.write("- `COUNTRY_MONTHLY`는 국가 단위 시트이므로 `연월 + 체인구분`만으로 중복을 보면 안 됩니다.")
     st.write("- `HS_MONTHLY_SUMMARY`도 HS 단위 시트이므로 시트별 고유키를 따로 적용합니다.")
 
     st.markdown("### 표준화 / 예외처리 반영사항")
@@ -1185,9 +1352,9 @@ elif menu == "7. 데이터 검증 / 방법론":
         "CV = 국가별 월수입금액 population std / 평균\n"
         "경보점수기초 = (HHI/100 × 0.4) + (상위1국의존도 × 0.3) + (CV × 0.3)\n"
         "대체조달가능성_점수 = 0.35*수입국수_norm + 0.30*(100-상위1국의존도) + 0.20*(100-HHI_norm) + 0.15*fta_ratio\n"
-        "선행 신호 탐지 = x(t)와 y(t+1~3)의 상관 비교 (lag 0 제외)"
+        "선행 신호 후보 탐지 = x(t)와 y(t+1~3)의 상관 비교 (lag 0 제외)"
     )
 
     st.markdown("### 해석 원칙")
-    st.write("- 선행 신호 탐지는 인과 확정이 아니라 **향후 1~3개월 모니터링 우선순위**를 제시하는 보조 분석입니다.")
+    st.write("- 선행 신호 후보 탐지는 인과 확정이 아니라 **향후 1~3개월 모니터링 우선순위**를 제시하는 보조 분석입니다.")
     st.write("- 대체국 추천은 안정성·FTA·기존 실적·집중도 완화 효과를 반영한 **1차 의사결정 지원**입니다.")
