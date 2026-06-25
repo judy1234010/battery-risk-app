@@ -236,7 +236,6 @@ def month_coverage_check(df, sheet_name, expected_months):
         "누락월예시": ", ".join(missing[:10]) if missing else "-"
     }
 
-
 # =========================================================
 # 2. 데이터 로드
 # =========================================================
@@ -344,7 +343,6 @@ def load_data(uploaded_file):
 
     return sheets
 
-
 # =========================================================
 # 3. 선행 신호 후보 탐지
 # =========================================================
@@ -427,7 +425,6 @@ def make_lead_table(panel_sub, chain_name, future_target):
     out["_ord"] = out["강도"].map(order_map)
     out = out.sort_values(["_ord", "상관계수"], ascending=[False, False]).drop(columns="_ord")
     return out.reset_index(drop=True)
-
 
 # =========================================================
 # 4. 국가 리스크 / 추천
@@ -633,7 +630,6 @@ def recommend_country_groups(country_df, risk_master_df, chain, month):
 
     return keep_df, expand_df, reduce_df
 
-
 # =========================================================
 # 5. 시뮬레이터
 # =========================================================
@@ -668,7 +664,6 @@ def simulate_scenario(panel_row, alert_row, top1_drop=10, fta_gain=10, alt_gain=
         "시뮬레이션 최종위험점수": round(new_score, 2) if pd.notna(new_score) else np.nan,
         "예상 감소폭": round(current_score - new_score, 2) if pd.notna(current_score) and pd.notna(new_score) else np.nan
     }
-
 
 # =========================================================
 # 6. 검증 로직
@@ -768,7 +763,6 @@ def compare_keys(left_df, right_df, key_cols, left_name, right_name):
 
     return pd.concat([only_l, only_r], ignore_index=True)
 
-
 # =========================================================
 # 7. 앱 시작
 # =========================================================
@@ -829,7 +823,7 @@ menu = st.sidebar.radio(
 if menu == "1. 종합 상황판":
     st.header("1. 종합 상황판")
 
-    selected_dashboard_month = st.selectbox("기준월 선택", months, index=len(months)-1)
+    selected_dashboard_month = st.selectbox("기준월 선택", months, index=len(months) - 1)
     curr = alert[alert["연월_표시"] == selected_dashboard_month].copy()
 
     prev_idx = months.index(selected_dashboard_month) - 1
@@ -977,7 +971,7 @@ elif menu == "3. 충격 원인 추적":
 
     c1, c2 = st.columns(2)
     chain = c1.selectbox("체인", chains)
-    month = c2.selectbox("연월", months, index=len(months)-1)
+    month = c2.selectbox("연월", months, index=len(months) - 1)
 
     p = panel[(panel["체인구분"] == chain) & (panel["연월_표시"] == month)].copy()
     a = alert[(alert["체인구분"] == chain) & (alert["연월_표시"] == month)].copy()
@@ -1083,7 +1077,11 @@ elif menu == "4. 선행 신호 후보 탐지":
     st.header("4. 선행 신호 후보 탐지")
 
     chain = st.selectbox("체인 선택", chains, key="lead_chain")
-    future_target = st.selectbox("미래 반응지표 선택", ["최종위험점수", "가격리스크점수", "수급리스크점수", "물류리스크점수", "정책이벤트리스크점수"], index=0)
+    future_target = st.selectbox(
+        "미래 반응지표 선택",
+        ["최종위험점수", "가격리스크점수", "수급리스크점수", "물류리스크점수", "정책이벤트리스크점수"],
+        index=0
+    )
 
     p = panel[panel["체인구분"] == chain].sort_values("연월_sort").copy()
     lead = make_lead_table(p, chain, future_target)
@@ -1107,10 +1105,7 @@ elif menu == "4. 선행 신호 후보 탐지":
                 st.dataframe(filtered_lead, use_container_width=True)
                 lead_for_select = filtered_lead.copy()
 
-        st.caption("해석 원칙: 본 메뉴는 `lag 0`(동일 월 상관)을 제외하고, 현재월 변수 `x(t)`와 미래 1~3개월 후 반응지표 `y(t+1)`, `y(t+2)`, `y(t+3)` 간의 시차 상관만 계산합니다.")
-        st.caption("즉 현재월 동행성이 아니라, 향후 1~3개월 선행 가능성이 있는 모니터링 후보 신호를 탐지하기 위한 메뉴입니다.")
-        st.caption("※ 이는 인과관계를 확정하는 분석이 아니라, 미래 위험지표와 상대적으로 높은 시차 연동성을 보이는 변수를 식별하기 위한 보조 분석입니다.")
-        st.caption("※ `lag 0`을 제외한 이유는 일부 변수(예: 환율, GSCPI, TPU)가 현재월 위험점수 산식에 직접 반영되어 동일 월 상관이 기계적으로 높아질 수 있기 때문입니다.")
+        st.caption("해석 원칙: 본 메뉴는 `lag 0`을 제외하고 현재월 변수 x(t)와 미래 1~3개월 후 반응지표 y(t+1~3) 간 시차 상관만 계산합니다.")
 
         xcol = st.selectbox("선행변수 선택", lead_for_select["선행변수"].tolist())
         corr_df = calc_forward_lag_corr(p, xcol, future_target, lags=(1, 2, 3))
@@ -1128,7 +1123,7 @@ elif menu == "4. 선행 신호 후보 탐지":
         fig.update_layout(height=350, xaxis_title="선행 개월 수", yaxis_title="상관계수")
         fig.add_hline(y=0, line_width=1, line_dash="dash", line_color="gray")
         st.plotly_chart(fig, use_container_width=True)
-        st.caption("※ 그래프의 중앙 기준선(0)은 상관계수의 부호를 구분하는 기준입니다. 0보다 위는 양(+)의 상관, 아래는 음(-)의 상관을 의미합니다.")
+        st.caption("※ 0보다 위는 양(+)의 상관, 아래는 음(-)의 상관입니다.")
 
         valid_obs = corr_df["n_obs"].dropna()
         if not valid_obs.empty and valid_obs.min() < 12:
@@ -1147,7 +1142,7 @@ elif menu == "5. 기업 대응 시뮬레이터":
 
     c1, c2 = st.columns(2)
     chain = c1.selectbox("체인", chains, key="sim_chain")
-    month = c2.selectbox("연월", months, index=len(months)-1, key="sim_month")
+    month = c2.selectbox("연월", months, index=len(months) - 1, key="sim_month")
 
     p = panel[(panel["체인구분"] == chain) & (panel["연월_표시"] == month)]
     a = alert[(alert["체인구분"] == chain) & (alert["연월_표시"] == month)]
@@ -1217,8 +1212,8 @@ elif menu == "5. 기업 대응 시뮬레이터":
     fig_pct.update_layout(height=340, xaxis_title="지표", yaxis_title="변화율(%)")
     st.plotly_chart(fig_pct, use_container_width=True)
 
-    st.caption("※ HHI는 절대 규모가 커서 절대값 차트에서는 변화가 상대적으로 더 크게 보일 수 있습니다. 변화율(%) 차트를 함께 보시면 FTA 활용비중·대체조달가능성·최종위험점수 변화도 더 명확히 확인할 수 있습니다.")
-    st.caption("※ FTA 활용비중은 비율 지표이므로 상한 100을 넘지 않도록 처리했습니다. 현재값+개선폭이 100을 초과하면 100으로 유지됩니다.")
+    st.caption("※ HHI는 절대 규모가 커서 절대값 차트에서는 변화가 더 크게 보일 수 있습니다. 변화율 차트를 함께 보세요.")
+    st.caption("※ FTA 활용비중은 비율 지표이므로 상한 100을 넘지 않도록 처리했습니다.")
 
     st.markdown("### 실행 해석")
     st.write("- 상위 공급국 집중 완화, FTA 활용 확대, 대체조달 역량 강화는 최종위험점수 완화에 유효한 방향입니다.")
@@ -1232,7 +1227,7 @@ elif menu == "6. 대체국 추천 시스템":
 
     c1, c2 = st.columns(2)
     chain = c1.selectbox("체인", chains, key="alt_chain")
-    month = c2.selectbox("연월", months, index=len(months)-1, key="alt_month")
+    month = c2.selectbox("연월", months, index=len(months) - 1, key="alt_month")
 
     keep_df, expand_df, reduce_df = recommend_country_groups(country, risk_master, chain, month)
 
@@ -1297,6 +1292,8 @@ elif menu == "7. 데이터 검증 / 방법론":
         "COUNTRY_MONTHLY": country,
         "TPU_INDEX": tpu,
         "HS_MONTHLY_SUMMARY": hs,
+        "ENTROPY_WEIGHT": entropy,
+        "체인별 비교표": compare_df,
     }
 
     rows = [validate_sheet(name, df, rules) for name, df in targets.items()]
@@ -1310,7 +1307,11 @@ elif menu == "7. 데이터 검증 / 방법론":
     st.dataframe(coverage_df, use_container_width=True)
 
     st.markdown("### 월-체인 키 일치 점검")
-    key_compare_1 = compare_keys(panel, alert, ["연월_표시", "체인구분"], "PANEL_MONTHLY", "ALERT_RESULT")
+    key_compare_1 = compare_keys(
+        panel, alert,
+        ["연월_표시", "체인구분"],
+        "PANEL_MONTHLY", "ALERT_RESULT"
+    )
     if key_compare_1.empty:
         st.success("PANEL_MONTHLY와 ALERT_RESULT의 연월-체인 키가 일치합니다.")
     else:
@@ -1320,7 +1321,12 @@ elif menu == "7. 데이터 검증 / 방법론":
     if country is not None and not country.empty:
         panel_keys = panel[["연월_표시", "체인구분"]].drop_duplicates()
         country_keys = country[["연월_표시", "체인구분"]].drop_duplicates()
-        key_compare_2 = compare_keys(panel_keys, country_keys, ["연월_표시", "체인구분"], "PANEL_MONTHLY", "COUNTRY_MONTHLY")
+
+        key_compare_2 = compare_keys(
+            panel_keys, country_keys,
+            ["연월_표시", "체인구분"],
+            "PANEL_MONTHLY", "COUNTRY_MONTHLY"
+        )
         if key_compare_2.empty:
             st.success("PANEL_MONTHLY와 COUNTRY_MONTHLY의 연월-체인 범위가 일치합니다.")
         else:
@@ -1335,38 +1341,84 @@ elif menu == "7. 데이터 검증 / 방법론":
         if "연월_sort" in sample_df.columns:
             sample_df = sample_df.sort_values("연월_sort").copy()
 
-        st.write(f"총 행 수: {len(sample_df):,}")
+        total_rows = len(sample_df)
+        st.write(f"총 행 수: {total_rows:,}")
 
         if "연월_표시" in sample_df.columns:
             month_options = ["전체"] + sorted(sample_df["연월_표시"].dropna().astype(str).unique().tolist())
-            selected_month = st.selectbox("연월 필터", month_options, index=0)
+            selected_month = st.selectbox(
+                "연월 필터",
+                month_options,
+                index=0,
+                key=f"sample_month_{sample_sheet}"
+            )
 
             if selected_month != "전체":
                 sample_df = sample_df[sample_df["연월_표시"] == selected_month].copy()
 
-        row_limit = st.slider(
-            "표시 행 수",
-            10,
-            min(300, max(10, len(sample_df))),
-            min(50, max(10, len(sample_df)))
-        )
+        filtered_rows = len(sample_df)
 
-        default_cols = [c for c in ["연월", "연월_sort", "연월_표시", "연도_std"] if c in sample_df.columns]
-        if not default_cols:
-            default_cols = sample_df.columns.tolist()[:8]
+        if filtered_rows == 0:
+            st.info("선택한 조건에 해당하는 데이터가 없습니다.")
+        else:
+            if filtered_rows <= 10:
+                row_limit = filtered_rows
+                st.write(f"표시 행 수: {row_limit}")
+            else:
+                row_limit = st.slider(
+                    "표시 행 수",
+                    min_value=10,
+                    max_value=min(300, filtered_rows),
+                    value=min(50, filtered_rows),
+                    key=f"row_limit_{sample_sheet}"
+                )
 
-        cols_show = st.multiselect(
-            "표시 컬럼 선택",
-            sample_df.columns.tolist(),
-            default=default_cols
-        )
+            helper_cols = [c for c in ["연월", "연월_sort", "연월_표시", "연도_std"] if c in sample_df.columns]
 
-        st.dataframe(sample_df[cols_show].head(row_limit), use_container_width=True)
+            preferred_cols = [
+                "체인구분", "HS코드", "HS_Code", "품목명", "품목", "HS명",
+                "국가코드", "국가명", "FTA여부",
+                "최종위험점수", "최종경보등급",
+                "가격리스크점수", "수급리스크점수", "물류리스크점수", "정책이벤트리스크점수",
+                "HHI", "상위1국의존도", "국가보정합계", "CV",
+                "fta_ratio", "대체조달가능성", "대체조달가능성_점수",
+                "총수입금액", "총수입중량", "총수입물량", "평균수입단가",
+                "국가별수입비중", "기본평가점수", "총보정점수", "최종보정점수",
+                "GSCPI", "GSCPI_Norm", "TPU_Norm", "원천_TPU_INDEX",
+                "변수명", "구분", "카테고리", "가중치(%)", "계산식", "설명",
+                "평균_최종위험점수", "최고 위험점수", "최고_위험_도달_시점_표시", "종합_시사점"
+            ]
+            preferred_exist = [c for c in preferred_cols if c in sample_df.columns]
+
+            default_cols = []
+            for c in helper_cols + preferred_exist:
+                if c not in default_cols:
+                    default_cols.append(c)
+
+            if len(default_cols) < 8:
+                for c in sample_df.columns:
+                    if c not in default_cols:
+                        default_cols.append(c)
+                    if len(default_cols) >= min(12, len(sample_df.columns)):
+                        break
+
+            cols_show = st.multiselect(
+                "표시 컬럼 선택",
+                sample_df.columns.tolist(),
+                default=default_cols[:12],
+                key=f"cols_show_{sample_sheet}"
+            )
+
+            if not cols_show:
+                st.warning("표시할 컬럼을 1개 이상 선택해 주세요.")
+            else:
+                st.dataframe(sample_df[cols_show].head(row_limit), use_container_width=True)
 
     st.markdown("### 검증 해석 유의사항")
     st.write("- `PANEL_MONTHLY`, `ALERT_RESULT`는 `연월 + 체인구분`이 유일키입니다.")
     st.write("- `COUNTRY_MONTHLY`는 국가 단위 시트이므로 `연월 + 체인구분`만으로 중복을 보면 안 됩니다.")
     st.write("- `HS_MONTHLY_SUMMARY`는 HS/품목 단위 자료가 포함될 수 있어 집계 기준을 함께 확인해야 합니다.")
+    st.write("- 검증용 샘플 조회는 각 시트의 실제 항목/수치가 앱에 어떻게 들어왔는지 직접 점검하기 위한 메뉴입니다.")
 
     st.markdown("### 표준화 / 예외처리 반영사항")
     st.write("- `2021.01`, `2021-01`, `202101`을 `2021-01`로 통일")
