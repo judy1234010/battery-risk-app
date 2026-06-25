@@ -59,7 +59,7 @@ def parse_ym_value(v):
         right = right.strip()
         if len(left) == 4:
             y = int(left)
-            if right == "1":  # 원본 특수 규칙
+            if right == "1":
                 return y * 100 + 10
             if right.isdigit():
                 m = int(right)
@@ -196,13 +196,45 @@ def to_hs_string(v):
     if pd.isna(v):
         return None
     s = str(v).strip()
-    # 숫자형 850710.0 -> 850710
     if s.endswith(".0"):
         s = s[:-2]
     digits = "".join(ch for ch in s if ch.isdigit())
     if len(digits) >= 6:
         return digits[:6]
     return digits if digits else s
+
+
+def build_expected_months(start="2021-01", end="2025-12"):
+    start_ts = pd.Timestamp(start + "-01")
+    end_ts = pd.Timestamp(end + "-01")
+    months = pd.date_range(start_ts, end_ts, freq="MS")
+    return [d.strftime("%Y-%m") for d in months]
+
+
+def month_coverage_check(df, sheet_name, expected_months):
+    if df is None or df.empty or "연월_표시" not in df.columns:
+        return {
+            "시트명": sheet_name,
+            "최소월": None,
+            "최대월": None,
+            "보유월수": 0,
+            "예상월수": len(expected_months),
+            "누락월수": len(expected_months),
+            "누락월예시": ", ".join(expected_months[:6])
+        }
+
+    actual = sorted(df["연월_표시"].dropna().astype(str).unique().tolist())
+    missing = [m for m in expected_months if m not in actual]
+
+    return {
+        "시트명": sheet_name,
+        "최소월": actual[0] if actual else None,
+        "최대월": actual[-1] if actual else None,
+        "보유월수": len(actual),
+        "예상월수": len(expected_months),
+        "누락월수": len(missing),
+        "누락월예시": ", ".join(missing[:10]) if missing else "-"
+    }
 
 
 # =========================================================
@@ -617,11 +649,7 @@ def simulate_scenario(panel_row, alert_row, top1_drop=10, fta_gain=10, alt_gain=
 
     new_top1 = max(current_top1 - top1_drop, 0) if pd.notna(current_top1) else np.nan
     new_hhi = max(current_hhi * (1 - 0.6 * top1_drop / 100), 0) if pd.notna(current_hhi) else np.nan
-
-    # 비율 상한 100
     new_fta = min(current_fta + fta_gain, 100) if pd.notna(current_fta) else np.nan
-
-    # 점수 상한 100
     new_alt = min(current_alt + alt_gain, 100) if pd.notna(current_alt) else np.nan
 
     score_reduction = 0.25 * top1_drop + 0.08 * fta_gain + 0.12 * alt_gain
@@ -901,6 +929,7 @@ elif menu == "2. 체인별 심층 분석":
     if hs is not None and not hs.empty:
         st.markdown("### HS 기준 월별 요약 활용")
         hs_sub = hs[hs["체인구분"] == chain].copy()
+
         if not hs_sub.empty:
             latest_hs_month = hs_sub["연월_표시"].dropna().max()
             hs_latest = hs_sub[hs_sub["연월_표시"] == latest_hs_month].copy()
@@ -909,24 +938,36 @@ elif menu == "2. 체인별 심층 분석":
             key_col = candidate_cols[0] if candidate_cols else None
 
             if key_col and "총수입금액" in hs_latest.columns:
-                hs_latest[key_col] = hs_latest[key_col].astype(str)
+                hs_latest[key_col] = hs_latest[key_col].astype(str).apply(to_hs_string)
                 top_hs = hs_latest.sort_values("총수입금액", ascending=False).head(10).copy()
+                top_hs["표시항목"] = top_hs[key_col].astype(str)
                 top_hs["금액라벨"] = top_hs["총수입금액"].apply(lambda x: f"{x:,.0f}")
+                top_hs = top_hs.sort_values("총수입금액", ascending=True)
 
-                fig_hs = px.bar(
-                    top_hs.sort_values("총수입금액"),
-                    x="총수입금액",
-                    y=key_col,
+                fig_hs = go.Figure()
+                fig_hs.add_trace(go.Bar(
+                    x=top_hs["총수입금액"],
+                    y=top_hs["표시항목"],
                     orientation="h",
-                    text="금액라벨",
-                    title=f"{latest_hs_month} {chain} HS/품목별 수입금액 상위"
-                )
-                fig_hs.update_layout(height=360, xaxis_title="총수입금액", yaxis_title=key_col)
-                fig_hs.update_traces(
-                    hovertemplate=f"{key_col}=%{{y}}<br>총수입금액=%{{x:,.0f}}<extra></extra>"
+                    text=top_hs["금액라벨"],
+                    textposition="outside",
+                    marker_color="#7DB7E8",
+                    hovertemplate="HS/품목=%{y}<br>총수입금액=%{x:,.0f}<extra></extra>"
+                ))
+
+                fig_hs.update_layout(
+                    title=f"{latest_hs_month} {chain} HS/품목별 수입금액 상위",
+                    height=380,
+                    xaxis_title="총수입금액",
+                    yaxis_title=key_col,
+                    yaxis=dict(
+                        type="category",
+                        categoryorder="array",
+                        categoryarray=top_hs["표시항목"].tolist()
+                    ),
+                    showlegend=False
                 )
                 st.plotly_chart(fig_hs, use_container_width=True)
-                st.caption("※ HS 코드는 약식 축약 표기(k, M)가 아니라 원본 코드 문자열 기준으로 표시합니다.")
 
 # =========================================================
 # 3. 충격 원인 추적
@@ -1139,7 +1180,6 @@ elif menu == "5. 기업 대응 시뮬레이터":
     })
     st.dataframe(sim_df, use_container_width=True)
 
-    # 절대값 차트는 HHI가 너무 커서 보조용만
     chart_df = sim_df.copy().melt(id_vars="지표", value_vars=["현재", "시뮬레이션"], var_name="구분", value_name="값")
     fig_abs = px.bar(
         chart_df,
@@ -1153,7 +1193,6 @@ elif menu == "5. 기업 대응 시뮬레이터":
     fig_abs.update_layout(height=360, xaxis_title="지표", yaxis_title="값")
     st.plotly_chart(fig_abs, use_container_width=True)
 
-    # 변화율 차트 추가: 작은 값 변화도 가시화
     change_rows = []
     for _, r in sim_df.iterrows():
         cur = pd.to_numeric(r["현재"], errors="coerce")
@@ -1264,6 +1303,12 @@ elif menu == "7. 데이터 검증 / 방법론":
     st.markdown("### 시트별 기본 검증")
     st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
+    st.markdown("### 연월 커버리지 점검 (2021-01 ~ 2025-12)")
+    expected_months = build_expected_months("2021-01", "2025-12")
+    coverage_rows = [month_coverage_check(df, name, expected_months) for name, df in targets.items()]
+    coverage_df = pd.DataFrame(coverage_rows)
+    st.dataframe(coverage_df, use_container_width=True)
+
     st.markdown("### 월-체인 키 일치 점검")
     key_compare_1 = compare_keys(panel, alert, ["연월_표시", "체인구분"], "PANEL_MONTHLY", "ALERT_RESULT")
     if key_compare_1.empty:
@@ -1285,9 +1330,38 @@ elif menu == "7. 데이터 검증 / 방법론":
     st.markdown("### 원본 값 점검용 샘플 조회")
     sample_sheet = st.selectbox("샘플 확인 시트", list(sheets.keys()))
     sample_df = sheets[sample_sheet]
+
     if sample_df is not None and not sample_df.empty:
-        cols_show = st.multiselect("표시 컬럼 선택", sample_df.columns.tolist(), default=sample_df.columns.tolist()[:8])
-        st.dataframe(sample_df[cols_show].head(30), use_container_width=True)
+        if "연월_sort" in sample_df.columns:
+            sample_df = sample_df.sort_values("연월_sort").copy()
+
+        st.write(f"총 행 수: {len(sample_df):,}")
+
+        if "연월_표시" in sample_df.columns:
+            month_options = ["전체"] + sorted(sample_df["연월_표시"].dropna().astype(str).unique().tolist())
+            selected_month = st.selectbox("연월 필터", month_options, index=0)
+
+            if selected_month != "전체":
+                sample_df = sample_df[sample_df["연월_표시"] == selected_month].copy()
+
+        row_limit = st.slider(
+            "표시 행 수",
+            10,
+            min(300, max(10, len(sample_df))),
+            min(50, max(10, len(sample_df)))
+        )
+
+        default_cols = [c for c in ["연월", "연월_sort", "연월_표시", "연도_std"] if c in sample_df.columns]
+        if not default_cols:
+            default_cols = sample_df.columns.tolist()[:8]
+
+        cols_show = st.multiselect(
+            "표시 컬럼 선택",
+            sample_df.columns.tolist(),
+            default=default_cols
+        )
+
+        st.dataframe(sample_df[cols_show].head(row_limit), use_container_width=True)
 
     st.markdown("### 검증 해석 유의사항")
     st.write("- `PANEL_MONTHLY`, `ALERT_RESULT`는 `연월 + 체인구분`이 유일키입니다.")
@@ -1296,8 +1370,6 @@ elif menu == "7. 데이터 검증 / 방법론":
 
     st.markdown("### 표준화 / 예외처리 반영사항")
     st.write("- `2021.01`, `2021-01`, `202101`을 `2021-01`로 통일")
-    st.write("- 원본 특수값 `2021.1`은 `2021-10`으로 처리")
-    st.write("- `GSCPI_NORM → GSCPI_Norm`, `이벤트보정 → TPU_Norm` 자동 통일")
     st.write("- float형 연월, Timestamp형 연월도 앱에서는 `YYYY-MM`으로 통일 표기")
     st.write("- HS 코드는 문자열로 처리해 `850710`처럼 원형을 유지하도록 반영")
 
