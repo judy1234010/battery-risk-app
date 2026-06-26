@@ -196,6 +196,11 @@ def inverse_score_band(v, low=30, mid=60):
     else:
         return "양호"
 
+def safe_fmt(v, digits=1):
+    if pd.isna(v):
+        return "-"
+    return f"{float(v):.{digits}f}"
+
 # =========================================================
 # 데이터 로드
 # =========================================================
@@ -398,41 +403,63 @@ leadacid_raw = data["leadacid_raw"]
 lithium_raw = data["lithium_raw"]
 
 latest_month = None
+min_month = None
+max_month = None
+month_list_global = []
+
 if panel is not None and "연월" in panel.columns and panel["연월"].notna().any():
-    latest_month = sorted(panel["연월"].dropna().astype(str).unique())[-1]
+    month_list_global = sorted(panel["연월"].dropna().astype(str).unique().tolist())
+    if month_list_global:
+        latest_month = month_list_global[-1]
+        min_month = month_list_global[0]
+        max_month = month_list_global[-1]
 
 # =========================================================
 # 1. 종합 상황판
 # =========================================================
 if menu == "1. 종합 상황판":
     st.subheader("종합 상황판")
-    st.info("""
+    st.info(f"""
 이 메뉴는 전체 공급망 리스크 현황을 한눈에 보는 요약 화면입니다.
 
 활용 방법
-1) 최신 기준월 체인별 최종위험 수준을 확인합니다.
+1) 선택 기준월 체인별 최종위험 수준을 확인합니다.
 2) 4대 리스크축(가격·수급·물류·정책) 중 어떤 축이 상대적으로 높은지 비교합니다.
 3) 체인별 비교 요약을 통해 평균 위험수준, 대체조달 여건, 우선관리 필요성을 함께 봅니다.
+
+참고
+- 본 화면의 기본 기준월은 **업로드된 데이터의 최신월({latest_month if latest_month else '-'})** 입니다.
+- 즉, 시스템 현재 날짜가 아니라 **업로드 데이터 기준 최신 시점 분석**입니다.
+- 데이터 범위: **{min_month if min_month else '-'} ~ {max_month if max_month else '-'}**
 """)
 
+    selected_month = latest_month
+    if month_list_global:
+        selected_month = st.selectbox(
+            "기준월 선택",
+            month_list_global,
+            index=len(month_list_global) - 1,
+            key="summary_month"
+        )
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("최신 기준월", latest_month if latest_month else "-")
-    c2.metric("체인 수", int(panel["체인구분"].nunique()) if panel is not None and "체인구분" in panel.columns else 0)
+    c1.metric("업로드 데이터 최신월", latest_month if latest_month else "-")
+    c2.metric("현재 선택 기준월", selected_month if selected_month else "-")
     c3.metric("검증 WARN", int((check_df["레벨"] == "WARN").sum()))
     c4.metric("검증 FAIL", int((check_df["레벨"] == "FAIL").sum()))
 
     if panel is not None:
-        latest_panel = panel.copy()
-        if latest_month:
-            latest_panel = latest_panel[latest_panel["연월"] == latest_month]
+        selected_panel = panel.copy()
+        if selected_month:
+            selected_panel = selected_panel[selected_panel["연월"] == selected_month]
 
-        st.markdown("#### 최신월 체인별 핵심 현황")
+        st.markdown("#### 선택월 체인별 핵심 현황")
         cols_to_show = [c for c in [
             "체인구분", "최종위험점수", "최종경보등급",
             "가격리스크점수", "수급리스크점수", "물류리스크점수",
             "정책이벤트리스크점수", "fta_ratio", "지역권수"
-        ] if c in latest_panel.columns]
-        st.dataframe(latest_panel[cols_to_show], use_container_width=True)
+        ] if c in selected_panel.columns]
+        st.dataframe(selected_panel[cols_to_show], use_container_width=True)
 
         if "최종위험점수" in panel.columns:
             fig = px.line(
@@ -445,16 +472,16 @@ if menu == "1. 종합 상황판":
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        risk_cols = [c for c in ["가격리스크점수", "수급리스크점수", "물류리스크점수", "정책이벤트리스크점수"] if c in latest_panel.columns]
-        if risk_cols:
-            bar_df = latest_panel[["체인구분"] + risk_cols].melt(id_vars="체인구분", var_name="리스크축", value_name="점수")
+        risk_cols = [c for c in ["가격리스크점수", "수급리스크점수", "물류리스크점수", "정책이벤트리스크점수"] if c in selected_panel.columns]
+        if risk_cols and not selected_panel.empty:
+            bar_df = selected_panel[["체인구분"] + risk_cols].melt(id_vars="체인구분", var_name="리스크축", value_name="점수")
             fig2 = px.bar(
                 bar_df,
                 x="리스크축",
                 y="점수",
                 color="체인구분",
                 barmode="group",
-                title=f"{latest_month} 4대 리스크 비교"
+                title=f"{selected_month} 4대 리스크 비교"
             )
             st.plotly_chart(fig2, use_container_width=True)
 
@@ -739,8 +766,8 @@ elif menu == "5. 선행 신호 후보 탐지":
 # =========================================================
 elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
     st.subheader("기업 대응 우선순위 추천 / 시뮬레이터")
-    st.info("""
-이 메뉴는 최신월 기준 체인의 취약요인을 진단하고,
+    st.info(f"""
+이 메뉴는 선택 기준월 체인의 취약요인을 진단하고,
 객관지표 기반으로 우선 대응전략을 추천한 뒤,
 선택한 대응조치 적용 시 리스크 완화 효과를 시뮬레이션하는 기능입니다.
 
@@ -748,6 +775,11 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
 1) 현재 취약점 진단
 2) 대응 우선순위 자동 추천
 3) 대응 강도 조정 후 개선 효과 시뮬레이션
+
+참고
+- 기본 기준월은 업로드된 데이터의 최신월인 **{latest_month if latest_month else '-'}** 입니다.
+- 즉, 시스템 현재 날짜가 아니라 **업로드 데이터 기준 최신 관측월 분석**입니다.
+- 데이터 범위: **{min_month if min_month else '-'} ~ {max_month if max_month else '-'}**
 """)
 
     if panel is None:
@@ -757,22 +789,29 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
     chain_list = sorted(panel["체인구분"].dropna().unique().tolist())
     selected_chain = st.selectbox("체인 선택", chain_list, key="sim_chain")
 
-    base = panel[(panel["체인구분"] == selected_chain) & (panel["연월"] == latest_month)].copy()
+    selected_month = latest_month
+    if month_list_global:
+        selected_month = st.selectbox(
+            "분석 기준월 선택",
+            month_list_global,
+            index=len(month_list_global) - 1,
+            key="sim_month"
+        )
+
+    base = panel[(panel["체인구분"] == selected_chain) & (panel["연월"] == selected_month)].copy()
     if base.empty:
-        st.warning("최신월 데이터가 없습니다.")
+        st.warning("선택 기준월 데이터가 없습니다.")
         st.stop()
 
     row = base.iloc[0].copy()
 
-    # 최신월 alert
     base_alert = pd.DataFrame()
     if alert is not None and {"체인구분", "연월"}.issubset(alert.columns):
-        base_alert = alert[(alert["체인구분"] == selected_chain) & (alert["연월"] == latest_month)].copy()
+        base_alert = alert[(alert["체인구분"] == selected_chain) & (alert["연월"] == selected_month)].copy()
 
-    # 최신월 country
     base_country = pd.DataFrame()
     if country is not None and {"체인구분", "연월"}.issubset(country.columns):
-        base_country = country[(country["체인구분"] == selected_chain) & (country["연월"] == latest_month)].copy()
+        base_country = country[(country["체인구분"] == selected_chain) & (country["연월"] == selected_month)].copy()
 
     # -----------------------------
     # 1) 취약점 진단
@@ -794,7 +833,6 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
         if share_col:
             top1_share = safe_numeric(base_country[share_col]).max()
 
-    amount_col = find_first_existing(base_country, ["국가수입금액", "수입금액", "금액", "수입액"])
     hhi = np.nan
     country_cnt = np.nan
     if not base_country.empty:
@@ -849,12 +887,12 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
     }
 
     reason_map = {
-        "공급국 다변화": f"상위1국의존도({top1_share:.1f}%)·HHI({hhi:.0f})·수입국수({country_cnt if pd.notna(country_cnt) else '-'}) 기준 공급집중 완화 필요",
-        "FTA 활용 확대": f"FTA 비중({fta_ratio:.1f}%) 및 대체조달가능성({alt_score:.1f}) 기준 조달 유연성 보완 필요" if pd.notna(fta_ratio) or pd.notna(alt_score) else "FTA 비중 및 대체조달 유연성 개선 필요",
-        "상위 1국 의존도 축소": f"상위1국의존도({top1_share:.1f}%)와 집중도(HHI {hhi:.0f}) 기준 단일국 의존 완화 필요",
-        "물류 안전재고·운송다변화": f"물류리스크점수({logistics_score:.1f})와 지역권수({region_cnt if pd.notna(region_cnt) else '-'}) 기준 운송 병목 대응 필요",
-        "정책/규제 대응력 강화": f"정책이벤트리스크점수({policy_score:.1f}) 기준 정책 충격 대응 필요",
-        "가격변동 대응(장기계약/헤지)": f"가격리스크점수({price_score:.1f}) 기준 가격 변동성 완화 필요",
+        "공급국 다변화": f"상위1국의존도({safe_fmt(top1_share)}%)·HHI({safe_fmt(hhi,0)})·수입국수({safe_fmt(country_cnt,0)}) 기준 공급집중 완화 필요",
+        "FTA 활용 확대": f"FTA 비중({safe_fmt(fta_ratio)}%) 및 대체조달가능성({safe_fmt(alt_score)}점) 기준 조달 유연성 보완 필요",
+        "상위 1국 의존도 축소": f"상위1국의존도({safe_fmt(top1_share)}%)와 집중도(HHI {safe_fmt(hhi,0)}) 기준 단일국 의존 완화 필요",
+        "물류 안전재고·운송다변화": f"물류리스크점수({safe_fmt(logistics_score)}점)와 지역권수({safe_fmt(region_cnt,0)}) 기준 운송 병목 대응 필요",
+        "정책/규제 대응력 강화": f"정책이벤트리스크점수({safe_fmt(policy_score)}점) 기준 정책 충격 대응 필요",
+        "가격변동 대응(장기계약/헤지)": f"가격리스크점수({safe_fmt(price_score)}점) 기준 가격 변동성 완화 필요",
     }
 
     axis_map = {
@@ -1005,7 +1043,7 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
         y="점수",
         color="구분",
         barmode="group",
-        title=f"{selected_chain} 대응 전후 4대 리스크 비교"
+        title=f"{selected_chain} / {selected_month} 대응 전후 4대 리스크 비교"
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -1022,13 +1060,18 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
 # =========================================================
 elif menu == "7. 대체국 추천 시스템":
     st.subheader("대체국 추천 시스템")
-    st.info("""
-이 메뉴는 최신월 기준으로 대체조달 후보국을 비교하는 화면입니다.
+    st.info(f"""
+이 메뉴는 선택 기준월을 바탕으로 대체조달 후보국을 비교하는 화면입니다.
 
 활용 방법
 1) 안정성점수와 최종보정점수를 함께 봅니다.
 2) FTA 여부와 상위공급국 여부를 고려해 대체조달 유연성을 판단합니다.
 3) 추천점수가 높은 국가를 우선 검토하되, 실제 계약·품질·규격 조건과 함께 해석합니다.
+
+참고
+- 기본 기준월은 업로드된 데이터의 최신월인 **{latest_month if latest_month else '-'}** 입니다.
+- 즉, 시스템 현재 날짜가 아니라 **업로드 데이터 기준 최신 관측월 추천**입니다.
+- 데이터 범위: **{min_month if min_month else '-'} ~ {max_month if max_month else '-'}**
 """)
 
     if country is None:
@@ -1041,10 +1084,24 @@ elif menu == "7. 대체국 추천 시스템":
         st.stop()
 
     selected_chain = st.selectbox("체인 선택", chain_list, key="alt_chain")
-    cur = country[(country["체인구분"] == selected_chain) & (country["연월"] == latest_month)].copy()
+
+    month_list_country = sorted(country["연월"].dropna().unique().tolist()) if "연월" in country.columns else []
+    selected_month = latest_month
+    if month_list_country:
+        default_idx = len(month_list_country) - 1
+        if latest_month in month_list_country:
+            default_idx = month_list_country.index(latest_month)
+        selected_month = st.selectbox(
+            "기준월 선택",
+            month_list_country,
+            index=default_idx,
+            key="alt_month"
+        )
+
+    cur = country[(country["체인구분"] == selected_chain) & (country["연월"] == selected_month)].copy()
 
     if cur.empty:
-        st.warning("최신월 국가 데이터가 없습니다.")
+        st.warning("선택 기준월 국가 데이터가 없습니다.")
         st.stop()
 
     cur["FTA가점"] = np.where(cur["FTA여부"] == "Y", 15, 0) if "FTA여부" in cur.columns else 0
@@ -1094,7 +1151,7 @@ elif menu == "7. 대체국 추천 시스템":
             y="추천점수",
             color="추천점수",
             color_continuous_scale="Blues",
-            title=f"{selected_chain} 대체국 추천 상위 10"
+            title=f"{selected_chain} / {selected_month} 대체국 추천 상위 10"
         )
         st.plotly_chart(fig, use_container_width=True)
 
