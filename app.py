@@ -271,27 +271,93 @@ def scenario_rule_text(name):
             "의미: 특정 국가뿐 아니라 특정 권역 집중도까지 줄이는 전략 시나리오이다."
         ],
         "물류 안정화": [
-            "업로드된 동일 연월 데이터에서 상대적으로 안정적이었던 체인들의 물류리스크 수준을 기준으로 개선폭을 설정한다.",
-            "반영 방식: 물류리스크점수를 동월 기준 25분위 수준까지 완화한다.",
+            "업로드된 동일 연월 값은 체인 간 동일할 수 있으므로, 물류 항목은 해당 체인의 시계열 분포를 기준으로 개선 수준을 산정한다.",
+            "반영 방식: 물류리스크점수를 해당 체인의 시계열 기준 25분위 수준까지 완화한다.",
             "의미: 재고 확보, 운송선 다변화, 통관 리드타임 안정화 등 운영 측면의 대응을 반영한 시나리오이다."
         ],
         "정책 노출 축소": [
-            "업로드된 동일 연월 데이터에서 정책 이벤트 노출이 낮은 체인들의 수준을 기준으로 개선폭을 설정한다.",
-            "반영 방식: 정책이벤트리스크점수를 동월 기준 25분위 수준까지 완화하고, 필요 시 지역권수는 60분위 수준까지 보완한다.",
+            "업로드된 동일 연월 값은 체인 간 동일할 수 있으므로, 정책이벤트 항목은 해당 체인의 시계열 분포를 기준으로 개선 수준을 산정한다.",
+            "반영 방식: 정책이벤트리스크점수를 해당 체인의 시계열 기준 25분위 수준까지 완화하고, 필요 시 지역권수는 동월 기준 60분위 수준까지 보완한다.",
             "의미: 특정 고위험 국가·권역 노출을 줄이는 구조 조정 시나리오이다."
         ],
         "종합 대응": [
-            "부분 다변화, 권역 분산, 물류 안정화를 결합한 시나리오로, 모든 조정폭은 업로드된 동일 연월 데이터의 분위값을 기준으로 설정한다.",
-            "반영 방식: 상위1국의존도·HHI·수급리스크는 25~35분위, 수입국수·지역권수는 60~75분위, 물류리스크는 25분위 수준을 목표로 한다.",
+            "부분 다변화, 권역 분산, 물류 안정화, 정책 노출 축소를 결합한 시나리오이다.",
+            "반영 방식: 구조지표(상위1국의존도, HHI, 수입국수, 지역권수, 수급리스크)는 동일 연월 체인 분포 기준으로, 물류 및 정책이벤트 항목은 해당 체인의 시계열 분포 기준으로 개선 수준을 산정한다.",
             "의미: 공급선 구조와 운영 대응을 함께 개선하는 중장기 종합 시나리오이다."
         ],
     }
     return mapping.get(name, [])
 
-def apply_structure_scenario(row_dict, month_df, scenario_name):
+
+def build_action_roadmap(row):
+    candidates = []
+
+    top1 = safe_numeric(pd.Series([row.get("상위1국의존도", np.nan)])).iloc[0]
+    hhi = safe_numeric(pd.Series([row.get("HHI", np.nan)])).iloc[0]
+    fta = safe_numeric(pd.Series([row.get("fta_ratio", np.nan)])).iloc[0]
+    regions = safe_numeric(pd.Series([row.get("지역권수", np.nan)])).iloc[0]
+
+    if pd.notna(top1) and top1 >= 70:
+        candidates.append({
+            "score": 100,
+            "권고 액션": "상위국 의존도 완화",
+            "실행 아이디어": "상위 1개국 물량 일부를 2~3위국 또는 신규국으로 분산",
+            "예상 개선 지표": "상위1국의존도, HHI 개선"
+        })
+
+    if pd.notna(hhi) and hhi >= 5000:
+        candidates.append({
+            "score": 90,
+            "권고 액션": "공급선 집중 완화",
+            "실행 아이디어": "단일·소수 공급국 구조를 다변화",
+            "예상 개선 지표": "HHI, 수입국수 개선"
+        })
+
+    if pd.notna(regions) and regions <= 3:
+        candidates.append({
+            "score": 70,
+            "권고 액션": "권역 다변화",
+            "실행 아이디어": "동일 권역 집중 시 대체 권역 공급선 확보",
+            "예상 개선 지표": "지역권수 개선"
+        })
+
+    if pd.notna(fta) and fta <= 40:
+        candidates.append({
+            "score": 60,
+            "권고 액션": "FTA 활용 재점검",
+            "실행 아이디어": "관세·원산지 조건을 검토해 FTA 활용 확대",
+            "예상 개선 지표": "fta_ratio 개선"
+        })
+
+    if not candidates:
+        candidates.append({
+            "score": 10,
+            "권고 액션": "정기 모니터링",
+            "실행 아이디어": "월별 리스크 추이와 공급국 변동을 점검",
+            "예상 개선 지표": "현 수준 유지 관리"
+        })
+
+    roadmap = pd.DataFrame(candidates).sort_values("score", ascending=False).reset_index(drop=True)
+    roadmap["우선순위"] = [f"{i}순위" for i in range(1, len(roadmap) + 1)]
+    return roadmap[["우선순위", "권고 액션", "실행 아이디어", "예상 개선 지표"]]
+
+
+def quantile_from_series_df(df, col, q, fallback=np.nan):
+    if df is None or df.empty or col not in df.columns:
+        return fallback
+    s = safe_numeric(df[col]).dropna()
+    if s.empty:
+        return fallback
+    try:
+        return float(s.quantile(q))
+    except Exception:
+        return fallback
+
+
+def apply_structure_scenario(row_dict, month_df, chain_ts_df, scenario_name):
     """
-    업로드된 동일 연월 데이터 분포(분위값)를 사용한 구조 개선 시나리오
-    예측모형이 아니라 규칙 기반 민감도 분석
+    구조지표는 동일 연월 체인 분포 기준,
+    물류/정책은 체인 자체 시계열 분포 기준으로 적용
     """
     row = dict(row_dict)
 
@@ -328,8 +394,8 @@ def apply_structure_scenario(row_dict, month_df, scenario_name):
     q_supply_35 = quantile_or_current(month_df, "수급리스크점수", 0.35, cur_supply)
     q_supply_25 = quantile_or_current(month_df, "수급리스크점수", 0.25, cur_supply)
 
-    q_log_25 = quantile_or_current(month_df, "물류리스크점수", 0.25, cur_logistics)
-    q_policy_25 = quantile_or_current(month_df, "정책이벤트리스크점수", 0.25, cur_policy)
+    q_log_25_ts = quantile_from_series_df(chain_ts_df, "물류리스크점수", 0.25, cur_logistics)
+    q_policy_25_ts = quantile_from_series_df(chain_ts_df, "정책이벤트리스크점수", 0.25, cur_policy)
 
     if scenario_name == "부분 다변화":
         if not pd.isna(cur_top1):
@@ -355,11 +421,11 @@ def apply_structure_scenario(row_dict, month_df, scenario_name):
 
     elif scenario_name == "물류 안정화":
         if not pd.isna(cur_logistics):
-            row["물류리스크점수"] = min(cur_logistics, q_log_25)
+            row["물류리스크점수"] = min(cur_logistics, q_log_25_ts)
 
     elif scenario_name == "정책 노출 축소":
         if not pd.isna(cur_policy):
-            row["정책이벤트리스크점수"] = min(cur_policy, q_policy_25)
+            row["정책이벤트리스크점수"] = min(cur_policy, q_policy_25_ts)
         if not pd.isna(cur_regions):
             row["지역권수"] = max(cur_regions, q_region_60)
 
@@ -375,9 +441,9 @@ def apply_structure_scenario(row_dict, month_df, scenario_name):
         if not pd.isna(cur_supply):
             row["수급리스크점수"] = min(cur_supply, q_supply_25)
         if not pd.isna(cur_logistics):
-            row["물류리스크점수"] = min(cur_logistics, q_log_25)
+            row["물류리스크점수"] = min(cur_logistics, q_log_25_ts)
         if not pd.isna(cur_policy):
-            row["정책이벤트리스크점수"] = min(cur_policy, q_policy_25)
+            row["정책이벤트리스크점수"] = min(cur_policy, q_policy_25_ts)
 
     return row
 
@@ -981,7 +1047,7 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
     info_box(
         "현재 공급구조에서 어떤 대응 과제를 우선적으로 검토해야 하는지를 구조적으로 제시하기 위한 화면이다.",
         "1. 구조 진단과 우선 개선 과제 제시<br>2. 업로드된 동일 연월 데이터 분포를 활용한 구조 개선 시뮬레이션<br>3. 시나리오별 구조지표 변화 비교",
-        "본 기능은 예측모형이 아니라, 우리 데이터에 나타난 동월 체인 분포를 기준으로 구조 개선 방향을 비교하는 규칙 기반 민감도 분석이다."
+        "본 기능은 예측모형이 아니라, 우리 데이터에 나타난 동월 체인 분포와 체인 자체 시계열 분포를 기준으로 구조 개선 방향을 비교하는 규칙 기반 민감도 분석이다."
     )
 
     if panel is None:
@@ -1004,6 +1070,7 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
             row.update(a.iloc[0].to_dict())
 
     month_df = panel[panel["연월"] == month].copy()
+    chain_ts_df = panel[panel["체인구분"] == chain].copy()
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("최종위험점수", fmt_num(row.get("최종위험점수", np.nan), 2), row.get("최종경보등급", "-"))
@@ -1028,6 +1095,7 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
     st.dataframe(diag, use_container_width=True)
 
     st.markdown("#### 권고 액션 로드맵")
+    st.caption("우선순위는 구조적 취약성이 큰 항목부터 실무 검토 순서대로 재정렬한 결과이다.")
     st.dataframe(build_action_roadmap(row), use_container_width=True)
 
     st.markdown("#### 구조 개선 시뮬레이터")
@@ -1038,15 +1106,14 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
 
     st.caption("시나리오 정의")
     for idx, line in enumerate(scenario_rule_text(scenario), start=1):
-        st.markdown(f"{idx}. {line}")
+        st.write(f"{idx}. {line}")
 
     st.caption(
-        "주의: 본 시뮬레이션은 예측모형이 아니라, 업로드된 우리 데이터의 동일 연월 분포를 기준으로 구조지표를 비교하는 규칙 기반 민감도 분석이다. "
-        "따라서 결과는 '실제 점수 예측'이 아니라 '구조 개선 방향 비교'로 해석해야 한다."
+        "주의: 본 시뮬레이션은 예측모형이 아니라, 구조지표는 동일 연월 체인 분포를, 물류 및 정책이벤트 항목은 체인 자체 시계열 분포를 기준으로 개선 방향을 비교하는 규칙 기반 민감도 분석이다."
     )
 
     current_rel_idx = empirical_relative_risk_index(month_df, row, entropy)
-    scenario_row = apply_structure_scenario(row, month_df, scenario) if scenario != "현 상태 유지" else dict(row)
+    scenario_row = apply_structure_scenario(row, month_df, chain_ts_df, scenario) if scenario != "현 상태 유지" else dict(row)
     scenario_rel_idx = empirical_relative_risk_index(month_df, scenario_row, entropy)
 
     compare_items = [
@@ -1061,7 +1128,22 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
             "시나리오 적용 후": scenario_row.get(item, np.nan)
         })
     sim_df = pd.DataFrame(sim_rows)
-    st.dataframe(sim_df, use_container_width=True)
+
+    preferred_direction = {
+        "상위1국의존도": "낮을수록 좋음",
+        "HHI": "낮을수록 좋음",
+        "수입국수": "높을수록 좋음",
+        "지역권수": "높을수록 좋음",
+        "수급리스크점수": "낮을수록 좋음",
+        "물류리스크점수": "낮을수록 좋음",
+        "정책이벤트리스크점수": "낮을수록 좋음"
+    }
+
+    impact_df = sim_df.copy()
+    impact_df["변화폭"] = safe_numeric(impact_df["시나리오 적용 후"]) - safe_numeric(impact_df["현재"])
+    impact_df["개선방향"] = impact_df["항목"].map(preferred_direction)
+
+    st.dataframe(impact_df, use_container_width=True)
 
     s1, s2 = st.columns(2)
     s1.metric("현재 상대위험지수(참고용)", fmt_num(current_rel_idx, 2))
@@ -1070,11 +1152,7 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
         delta_txt = fmt_num(scenario_rel_idx - current_rel_idx, 2)
     s2.metric("시나리오 적용 후 상대위험지수(참고용)", fmt_num(scenario_rel_idx, 2), delta=delta_txt)
 
-    impact_df = sim_df.copy()
-    impact_df["변화폭"] = safe_numeric(impact_df["시나리오 적용 후"]) - safe_numeric(impact_df["현재"])
-    st.markdown("#### 시나리오 적용 전후 비교")
-    st.caption("음(-)의 변화가 바람직한 항목(예: 상위1국의존도, HHI, 리스크점수)과 양(+)의 변화가 바람직한 항목(예: 수입국수, 지역권수)은 방향성이 다르므로 항목별로 해석한다.")
-    st.dataframe(impact_df, use_container_width=True)
+    st.caption("상대위험지수는 같은 연월 내 다른 체인 대비 상대적 위치를 0~100 범위로 환산한 참고지표다.")
 
 # =========================================================
 # 7. 대체국 추천 시스템
@@ -1114,26 +1192,6 @@ elif menu == "7. 대체국 추천 시스템":
         help="기존 주력 공급국이 아니라 신규 보완 후보를 찾고 싶을 때 사용한다."
     )
 
-    judgement_help = st.checkbox(
-        "최종판정 의미 안내",
-        value=False,
-        help=(
-            "낮음: 최종보정점수가 상대적으로 낮아 현재 기준에서 조달위험이 비교적 제한적인 상태를 의미한다.\n"
-            "보통: 즉시 경보 수준은 아니지만 가격, 집중도, FTA 등 일부 요인을 지속 점검할 필요가 있는 상태를 의미한다."
-        ),
-        key="judgement_help_toggle"
-    )
-
-    if judgement_help:
-        guide_df = pd.DataFrame({
-            "최종판정": ["낮음", "보통"],
-            "의미": [
-                "최종보정점수가 상대적으로 낮아 현재 기준에서 조달위험이 비교적 제한적인 상태",
-                "즉시 경보 수준은 아니지만 가격·집중도·FTA 등 일부 요인을 지속 점검할 필요가 있는 상태"
-            ]
-        })
-        st.dataframe(guide_df, use_container_width=True, hide_index=True)
-
     if fta_only and "FTA여부" in cur.columns:
         cur = cur[cur["FTA여부"] == "Y"].copy()
     if exclude_top and "상위공급국여부" in cur.columns:
@@ -1154,13 +1212,29 @@ elif menu == "7. 대체국 추천 시스템":
     else:
         cur["규모가점"] = 0
 
-    cur["대체국추천점수"] = cur["안정성점수"].fillna(0) + cur["FTA가점"] + cur["비상위가점"] + cur["규모가점"]
-    cur = cur.sort_values("대체국추천점수", ascending=False)
+    cur["대체국추천점수"] = (
+        cur["안정성점수"].fillna(0)
+        + cur["FTA가점"]
+        + cur["비상위가점"]
+        + cur["규모가점"]
+    )
 
-    show_cols = [c for c in ["국가코드", "국가명", "지역권", "FTA여부", "상위공급국여부", "국가수입금액", "금액비중", "기본평가점수", "최종보정점수", "최종판정", "대체국추천점수"] if c in cur.columns]
-    st.dataframe(cur[show_cols], use_container_width=True)
+    # 원본 표는 유지하되, 그래프용으로만 국가 단위 1행 집계
+    agg_dict = {}
+    for col in ["국가코드", "국가명", "지역권", "FTA여부", "상위공급국여부", "최종판정"]:
+        if col in cur.columns:
+            agg_dict[col] = "first"
+    for col in ["국가수입금액", "금액비중", "기본평가점수", "최종보정점수", "대체국추천점수"]:
+        if col in cur.columns:
+            agg_dict[col] = "max"
 
-    top10 = cur.head(10).copy()
+    graph_df = cur.groupby("국가라벨", as_index=False).agg(agg_dict)
+    graph_df = graph_df.sort_values("대체국추천점수", ascending=False)
+
+    show_cols = [c for c in ["국가코드", "국가명", "지역권", "FTA여부", "상위공급국여부", "국가수입금액", "금액비중", "기본평가점수", "최종보정점수", "최종판정", "대체국추천점수"] if c in graph_df.columns]
+    st.dataframe(graph_df[show_cols], use_container_width=True)
+
+    top10 = graph_df.head(10).copy()
     if {"국가라벨", "대체국추천점수"}.issubset(top10.columns):
         fig = px.bar(
             top10.sort_values("대체국추천점수", ascending=False),
@@ -1172,10 +1246,18 @@ elif menu == "7. 대체국 추천 시스템":
             template="plotly_dark",
             hover_data=[c for c in ["FTA여부", "상위공급국여부", "최종보정점수"] if c in top10.columns]
         )
-        fig.update_layout(height=420, legend_title_text="최종판정", xaxis_title="국가", yaxis_title="대체국추천점수")
+        fig.update_layout(
+            height=420,
+            legend_title_text="최종판정",
+            xaxis_title="국가",
+            yaxis_title="대체국추천점수",
+            barmode="group"
+        )
         st.plotly_chart(fig, use_container_width=True)
 
-    st.caption("색상은 최종판정 기준으로 고정했으며, 국가명 중복으로 막대가 분할되지 않도록 국가명(국가코드) 라벨을 사용했다.")
+    st.caption("최종판정 의미: 낮음 = 현재 기준에서 조달위험이 비교적 제한적인 상태 / 보통 = 즉시 경보 수준은 아니지만 일부 요인을 지속 점검할 필요가 있는 상태")
+    st.caption("동일 국가가 여러 행으로 존재할 경우 그래프에서는 국가 비교를 위해 국가명(국가코드) 기준으로 1회 집계하여 표시한다. 상세 값은 표에서 확인할 수 있다.")
+
 
 # =========================================================
 # 8. 원천데이터 탐색 / 다운로드
