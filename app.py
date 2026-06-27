@@ -183,10 +183,6 @@ def score_band_3(v, high=70, mid=40):
         return "양호"
 
 def inverse_score_band(v, low=30, mid=60):
-    """
-    낮을수록 취약한 지표용
-    예: fta_ratio, 대체조달가능성_점수
-    """
     if pd.isna(v):
         return "해석유보"
     if v <= low:
@@ -455,7 +451,7 @@ if menu == "1. 종합 상황판":
             "환율정규화, 납가격정규화, 리튬가격정규화, 니켈가격정규화",
             "상위1국의존도, HHI, 수입국수, CV, 국가보정합계",
             "GSCPI_Norm",
-            "TPU_INDEX의 이벤트보정값(정책이벤트_raw)"
+            "TPU_INDEX 이벤트보정값"
         ],
         "해석": [
             "환율·원자재 가격 변동에 따른 가격 충격 수준",
@@ -513,20 +509,6 @@ if menu == "1. 종합 상황판":
 
         if show_note and "종합_시사점" in chain_compare.columns:
             st.caption("※ 종합_시사점은 별도 점수가 아니라, 4대 리스크 평균 중 상대적으로 높은 축을 기준으로 자동 생성된 관리 해석문구입니다.")
-
-        if "체인구분" in chain_compare.columns and "우선관리대상_비중" in chain_compare.columns:
-            lithium_rows = chain_compare[chain_compare["체인구분"].astype(str).str.contains("리튬", na=False)]
-            if not lithium_rows.empty:
-                val = lithium_rows["우선관리대상_비중"].iloc[0]
-                try:
-                    if pd.notna(val) and float(val) == 0:
-                        st.caption("""
-리튬이온배터리군의 우선관리대상 비중이 0%라는 것은 위험이 없다는 뜻이 아니라,
-분석기간 내 '고위험'과 '저대체조달'이 동시에 강하게 충족된 월이 없었다는 의미입니다.
-즉 위험 상승 구간은 있었지만, 우선관리 판정 규칙상 동시충족 빈도가 낮았던 것입니다.
-""")
-                except:
-                    pass
 
 # =========================================================
 # 2. 체인별 심층 분석
@@ -619,65 +601,4 @@ elif menu == "3. 국가/공급선 상세 분석":
         st.warning("체인 목록을 찾을 수 없습니다.")
         st.stop()
 
-    selected_chain = st.selectbox("체인 선택", chain_list, key="country_chain")
-
-    month_list = sorted(country["연월"].dropna().unique().tolist()) if "연월" in country.columns else []
-    if not month_list:
-        st.warning("연월 정보가 없습니다.")
-        st.stop()
-
-    default_idx = len(month_list) - 1
-    selected_month = st.selectbox("연월 선택", month_list, index=default_idx, key="country_month")
-
-    sub = country[(country["체인구분"] == selected_chain) & (country["연월"] == selected_month)].copy()
-
-    amount_col = find_first_existing(sub, ["국가수입금액", "수입금액", "금액", "수입액"])
-    if amount_col:
-        sub[amount_col] = safe_numeric(sub[amount_col])
-        sub = sub.sort_values(amount_col, ascending=False)
-
-    st.markdown("#### 국가별 상세 현황")
-    cols = [c for c in [
-        "국가코드", "국가명", "지역권", amount_col, "FTA여부", "상위공급국여부",
-        "국가별수입비중", "지역권별수입비중", "집중도기여도",
-        "기본평가점수", "총보정점수", "최종보정점수", "최종판정", "위험점수출처"
-    ] if c and c in sub.columns]
-    st.dataframe(sub[cols], use_container_width=True)
-
-    st.caption("※ 국가별 최종보정점수는 기본 국가위험에 실제 수입구조 보정을 반영한 국가단위 위험지표입니다.")
-
-    if "최종보정점수" in sub.columns and "국가코드" in sub.columns:
-        plot_df = sub.dropna(subset=["국가코드"]).copy()
-        fig = px.bar(
-            plot_df.head(15),
-            x="국가코드",
-            y="최종보정점수",
-            color="최종보정점수",
-            color_continuous_scale="Reds",
-            title=f"{selected_chain} / {selected_month} 국가별 최종보정점수"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-# =========================================================
-# 4. 충격 원인 추적
-# =========================================================
-elif menu == "4. 충격 원인 추적":
-    st.subheader("충격 원인 추적")
-    st.info("""
-이 메뉴는 특정 체인에서 위험점수가 크게 움직인 시점과 그 원인을 추적하는 화면입니다.
-
-활용 방법
-1) 전월 대비 최종위험점수 상승폭이 큰 월을 우선 식별합니다.
-2) 음(-)의 큰 변화는 위험 완화 구간을 의미하므로 별도로 해석할 수 있습니다.
-3) 해당 시점에 가격·수급·물류·정책 중 어떤 축이 상대적으로 높았는지 확인합니다.
-4) 정책이벤트리스크가 높았던 월은 TPU_INDEX 기반 정책 이벤트 배경 코멘트를 함께 참고합니다.
-""")
-
-    if panel is None:
-        st.warning("PANEL_MONTHLY 데이터가 없습니다.")
-        st.stop()
-
-    chain_list = sorted(panel["체인구분"].dropna().unique().tolist())
-    selected_chain = st.selectbox("체인 선택", chain_list, key="shock_chain")
-
-    sub = panel[panel["
+    selected_chain = st.selectbox("체인 선택", chain_list, key="country
