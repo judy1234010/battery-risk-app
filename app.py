@@ -496,8 +496,8 @@ def apply_structure_scenario(row_dict, month_df, chain_ts_df, scenario_name):
             row["지역권수"] = _clamp_higher_better(cur_regions, cur_regions + 1, month_df, "지역권수", 0.75)
         if pd.notna(cur_logistics):
             floor_val = quantile_from_series_df(chain_ts_df, "물류리스크점수", 0.25, cur_logistics)
-allowed_floor = floor_val if cur_logistics > floor_val else cur_logistics
-row["물류리스크점수"] = max(cur_logistics * 0.90, allowed_floor)
+            allowed_floor = floor_val if cur_logistics > floor_val else cur_logistics
+            row["물류리스크점수"] = max(cur_logistics * 0.90, allowed_floor)
 
     row["수급리스크점수"] = calculate_supply_structure_risk(row, month_df)
 
@@ -1207,7 +1207,7 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
     base_supply_sim = calculate_supply_structure_risk(row, month_df)
     if pd.notna(base_supply_sim):
         row["수급리스크점수_원본"] = row.get("수급리스크점수", np.nan)
-row["수급리스크점수"] = base_supply_sim
+        row["수급리스크점수"] = base_supply_sim
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("최종위험점수", fmt_num(row.get("최종위험점수", np.nan), 2), row.get("최종경보등급", "-"))
