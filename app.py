@@ -264,22 +264,51 @@ def scenario_rule_text(name):
         ],
         "부분 다변화": [
             "상위 공급국 의존을 일부 완화하고 보조 공급선을 확대하는 시나리오다.",
-            "상위1국의존도와 HHI를 소폭 낮추고, 수입국수를 1개국 범위에서 보완한다."
+            "현재값 기준으로 상위1국의존도 10% 완화, HHI 12% 완화, 수입국수 1개국 확대를 적용한다."
         ],
         "권역 분산": [
             "특정 국가와 권역에 집중된 공급구조를 완화하기 위해 조달 권역을 넓히는 시나리오다.",
-            "상위1국의존도와 HHI를 완화하고, 수입국수와 지역권수를 함께 늘리는 방향을 반영한다."
+            "현재값 기준으로 상위1국의존도 6% 완화, HHI 10% 완화, 수입국수 1개국 확대, 지역권수 1권역 확대를 적용한다."
         ],
         "물류 안정화": [
             "재고, 운송 루트, 리드타임 관리 등 운영 대응으로 물류 충격의 체감 영향을 일부 완화하는 시나리오다.",
-            "가격·정책 외생지표는 유지하고, 물류 운영 완충효과만 제한적으로 반영한다."
+            "현재값 기준으로 물류리스크점수 10% 완화를 적용하되, 해당 체인의 과거 분포를 고려해 과도한 개선은 제한한다."
         ],
         "종합 대응": [
             "부분 다변화, 권역 분산, 물류 안정화를 함께 반영한 종합 시나리오다.",
-            "기업이 현실적으로 조정 가능한 구조·운영 항목만 반영하며, 가격·정책 외생지표는 직접 변경하지 않는다."
+            "현재값 기준으로 상위1국의존도 12% 완화, HHI 15% 완화, 수입국수 2개국 확대, 지역권수 1권역 확대, 물류리스크 10% 완화를 함께 적용한다."
         ],
     }
     return mapping.get(name, [])
+
+def build_scenario_parameter_guide():
+    return pd.DataFrame({
+        "시나리오": ["현 상태 유지", "부분 다변화", "권역 분산", "물류 안정화", "종합 대응"],
+        "적용 기준": [
+            "변화 없음",
+            "상위1국의존도 -10%, HHI -12%, 수입국수 +1",
+            "상위1국의존도 -6%, HHI -10%, 수입국수 +1, 지역권수 +1",
+            "물류리스크점수 -10%",
+            "상위1국의존도 -12%, HHI -15%, 수입국수 +2, 지역권수 +1, 물류리스크점수 -10%"
+        ],
+        "제한 방식": [
+            "기준선 유지",
+            "동일 연월 체인 분포 기준으로 과도한 변화 제한",
+            "동일 연월 체인 분포 기준으로 과도한 변화 제한",
+            "해당 체인 시계열 기준으로 과도한 변화 제한",
+            "구조항목은 동일 연월 분포, 물류항목은 체인 시계열 기준으로 과도한 변화 제한"
+        ]
+    })
+
+def apply_logistics_buffer(current, chain_ts_df, reduction_rate=0.10):
+    if pd.isna(current):
+        return np.nan
+    target_value = current * (1 - reduction_rate)
+    floor_val = quantile_from_series_df(chain_ts_df, "물류리스크점수", 0.25, current)
+    if pd.isna(floor_val):
+        return target_value
+    allowed_floor = floor_val if current > floor_val else current
+    return max(target_value, allowed_floor)
 
 def build_executive_comment(row):
     msgs = []
@@ -360,19 +389,17 @@ def _clamp_lower_better(current, target, month_df, col, q_floor=0.25):
     if pd.isna(current):
         return np.nan
     floor_val = quantile_or_current(month_df, col, q_floor, current)
+    allowed_floor = floor_val if current > floor_val else current
     candidate = min(current, target)
-    if pd.isna(floor_val):
-        return candidate
-    return max(candidate, floor_val) if current > floor_val else candidate
+    return max(candidate, allowed_floor)
 
 def _clamp_higher_better(current, target, month_df, col, q_cap=0.75):
     if pd.isna(current):
         return np.nan
     cap_val = quantile_or_current(month_df, col, q_cap, current)
+    allowed_cap = cap_val if current < cap_val else current
     candidate = max(current, target)
-    if pd.isna(cap_val):
-        return candidate
-    return min(candidate, cap_val) if current < cap_val else candidate
+    return min(candidate, allowed_cap)
 
 def _minmax_risk(value, series, higher_is_risk=True):
     s = safe_numeric(series).dropna()
@@ -484,12 +511,7 @@ def apply_structure_scenario(row_dict, month_df, chain_ts_df, scenario_name):
 
     elif scenario_name == "물류 안정화":
         if pd.notna(cur_logistics):
-            floor_val = quantile_from_series_df(chain_ts_df, "물류리스크점수", 0.25, cur_logistics)
-            target_logistics = cur_logistics * 0.90
-            if pd.isna(floor_val):
-                row["물류리스크점수"] = target_logistics
-            else:
-                row["물류리스크점수"] = max(target_logistics, floor_val) if cur_logistics > floor_val else target_logistics
+            row["물류리스크점수"] = apply_logistics_buffer(cur_logistics, chain_ts_df, reduction_rate=0.10)
 
     elif scenario_name == "종합 대응":
         if pd.notna(cur_top1):
@@ -501,12 +523,7 @@ def apply_structure_scenario(row_dict, month_df, chain_ts_df, scenario_name):
         if pd.notna(cur_regions):
             row["지역권수"] = _clamp_higher_better(cur_regions, cur_regions + 1, month_df, "지역권수", 0.75)
         if pd.notna(cur_logistics):
-            floor_val = quantile_from_series_df(chain_ts_df, "물류리스크점수", 0.25, cur_logistics)
-            target_logistics = cur_logistics * 0.90
-            if pd.isna(floor_val):
-                row["물류리스크점수"] = target_logistics
-            else:
-                row["물류리스크점수"] = max(target_logistics, floor_val) if cur_logistics > floor_val else target_logistics
+            row["물류리스크점수"] = apply_logistics_buffer(cur_logistics, chain_ts_df, reduction_rate=0.10)
 
     row["수급리스크점수"] = calculate_supply_structure_risk(row, month_df)
 
@@ -1250,17 +1267,21 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
 
     st.markdown("#### 구조 개선 시뮬레이터")
     st.caption("본 시뮬레이터는 기업이 실제로 조정 가능한 구조지표와 운영 대응만 반영한다. 가격리스크점수와 정책이벤트리스크점수는 직접 변경하지 않으며, 구조 변화에 따라 수급리스크를 비교용으로 재평가한다.")
+    st.caption("시나리오별 변화폭은 현재값 기준의 사전 설정 비율·증감폭을 적용한 뒤, 엑셀에 있는 분포를 벗어나지 않도록 한 번 더 제한하는 방식으로 계산한다.")
 
     scenario = st.selectbox(
         "대표 시나리오 선택",
         ["현 상태 유지", "부분 다변화", "권역 분산", "물류 안정화", "종합 대응"]
     )
 
+    with st.expander("시나리오별 적용 기준 보기", expanded=False):
+        st.dataframe(build_scenario_parameter_guide(), use_container_width=True, hide_index=True)
+
     st.caption("시나리오 정의")
     for idx, line in enumerate(scenario_rule_text(scenario), start=1):
         st.write(f"{idx}. {line}")
 
-    st.caption("시나리오 적용 규칙: 구조항목은 현재값에 대한 현실 조정폭을 먼저 적용한 뒤, 동일 연월 체인 분포를 기준으로 과도한 변화만 제한하는 방식으로 반영한다.")
+    st.caption("구조항목은 동일 연월 체인 분포를 기준으로, 물류항목은 해당 체인의 시계열 분포를 기준으로 과도한 변화만 제한한다.")
     st.caption("종합위험지수 계산식(참고용): 가격리스크점수, 수급리스크점수(구조지표 기반 비교용 재평가), 물류리스크점수, 정책이벤트리스크점수를 엔트로피 가중치로 가중평균한다.")
 
     current_sim_idx = calculate_simulation_risk_index(row, month_df, entropy)
