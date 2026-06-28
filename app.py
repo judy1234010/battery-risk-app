@@ -1116,6 +1116,7 @@ elif menu == "4. 충격 원인 추적":
     c1, c2, c3 = st.columns(3)
     c1.metric("최종위험점수", fmt_num(row.get("최종위험점수", np.nan), 2), row.get("최종경보등급", grade_final_risk(row.get("최종위험점수", np.nan))))
     c2.metric("주요 원인축", axis_df.iloc[0]["리스크축"])
+    
     reason = row.get("보정사유", "-")
     if pd.isna(reason) or str(reason).strip() == "":
         reason = "-"
