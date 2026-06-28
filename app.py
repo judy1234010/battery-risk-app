@@ -1091,11 +1091,17 @@ elif menu == "4. 충격 원인 추적":
     chain = st.selectbox("체인 선택", get_chain_list(panel), key="shock_chain")
     months = get_month_list(panel[panel["체인구분"] == chain])
     month = st.selectbox("연월 선택", months, index=get_default_index(months), key="shock_month")
-    row = panel[(panel["체인구분"] == chain) & (panel["연월"] == month)].copy()
-    if row.empty:
+    row_df = panel[(panel["체인구분"] == chain) & (panel["연월"] == month)].copy()
+    if row_df.empty:
         st.warning("선택 데이터가 없습니다.")
         st.stop()
-    row = row.iloc[0]
+    
+    row = row_df.iloc[0].to_dict()
+
+    if alert is not None and {"연월", "체인구분"}.issubset(alert.columns):
+        a = alert[(alert["체인구분"] == chain) & (alert["연월"] == month)]
+        if not a.empty:
+            row.update(a.iloc[0].to_dict())
 
     axis_df = pd.DataFrame({
         "리스크축": ["가격리스크", "수급리스크", "물류리스크", "정책이벤트리스크"],
@@ -1110,7 +1116,10 @@ elif menu == "4. 충격 원인 추적":
     c1, c2, c3 = st.columns(3)
     c1.metric("최종위험점수", fmt_num(row.get("최종위험점수", np.nan), 2), row.get("최종경보등급", grade_final_risk(row.get("최종위험점수", np.nan))))
     c2.metric("주요 원인축", axis_df.iloc[0]["리스크축"])
-    c3.metric("보정사유", row.get("보정사유", "-"))
+    reason = row.get("보정사유", "-")
+    if pd.isna(reason) or str(reason).strip() == "":
+        reason = "-"
+    c3.metric("보정사유", reason)
 
     fig = px.bar(axis_df, x="리스크축", y="점수", color="리스크축", template="plotly_dark")
     fig.update_layout(height=390, showlegend=False)
