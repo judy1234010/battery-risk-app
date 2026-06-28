@@ -360,15 +360,17 @@ def _clamp_lower_better(current, target, month_df, col, q_floor=0.25):
     if pd.isna(current):
         return np.nan
     floor_val = quantile_or_current(month_df, col, q_floor, current)
+    allowed_floor = floor_val if current > floor_val else current
     candidate = min(current, target)
-    return max(candidate, floor_val)
+    return max(candidate, allowed_floor)
 
 def _clamp_higher_better(current, target, month_df, col, q_cap=0.75):
     if pd.isna(current):
         return np.nan
     cap_val = quantile_or_current(month_df, col, q_cap, current)
+    allowed_cap = cap_val if current < cap_val else current
     candidate = max(current, target)
-    return min(candidate, cap_val)
+    return min(candidate, allowed_cap)
 
 def _minmax_risk(value, series, higher_is_risk=True):
     s = safe_numeric(series).dropna()
@@ -494,7 +496,8 @@ def apply_structure_scenario(row_dict, month_df, chain_ts_df, scenario_name):
             row["지역권수"] = _clamp_higher_better(cur_regions, cur_regions + 1, month_df, "지역권수", 0.75)
         if pd.notna(cur_logistics):
             floor_val = quantile_from_series_df(chain_ts_df, "물류리스크점수", 0.25, cur_logistics)
-            row["물류리스크점수"] = max(cur_logistics * 0.90, floor_val)
+allowed_floor = floor_val if cur_logistics > floor_val else cur_logistics
+row["물류리스크점수"] = max(cur_logistics * 0.90, allowed_floor)
 
     row["수급리스크점수"] = calculate_supply_structure_risk(row, month_df)
 
@@ -1203,7 +1206,8 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
 
     base_supply_sim = calculate_supply_structure_risk(row, month_df)
     if pd.notna(base_supply_sim):
-        row["수급리스크점수"] = base_supply_sim
+        row["수급리스크점수_원본"] = row.get("수급리스크점수", np.nan)
+row["수급리스크점수"] = base_supply_sim
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("최종위험점수", fmt_num(row.get("최종위험점수", np.nan), 2), row.get("최종경보등급", "-"))
@@ -1294,7 +1298,7 @@ elif menu == "7. 대체국 추천 시스템":
     info_box(
         "기존 공급구조를 보완하거나 대체할 수 있는 공급국 후보를 비교하기 위한 화면이다.",
         "1. 국가별 대체국 우선검토지수 비교<br>2. 국가별 최종판정(위험도분류) 동시 확인<br>3. FTA 여부, 상위공급국 여부, 최종보정점수 등 보조 정보 제공",
-        "막대 높이는 대체국 우선검토지수, 막대 색은 해당 국가의 최종판정(위험도분류)을 의미한다. 그래프는 국가코드 기준 1국가 1행으로 집계해 분할 막대가 생기지 않도록 구성한다."
+        "막대 높이는 대체국 우선검토지수, 막대 색은 해당 국가의 최종판정(위험도분류)을 의미한다. 국가 단위 비교의 일관성을 위해 국가코드 기준 집계값으로 제시한다."
     )
 
     if country is None:
