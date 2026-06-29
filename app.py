@@ -1269,7 +1269,7 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
                 top_signal_name = sim.get("top_signal_name", None)
 
                 if len(unique_lags) == 1:
-                    lag_line = f'상위 후보들의 최적 lag가 모두 <b>{unique_lags[0]}개월</b>로 일치하므로, 약 <b>{unique_lags[0]}개월 전부터 대응을 착수</b>하는 해석이 가능합니다.'
+                    lag_line = f'상위 후보의 최적 lag가 <b>{unique_lags[0]}개월</b>로 일치하므로, 약 <b>{unique_lags[0]}개월 전부터 대응을 착수</b>하는 해석이 가능합니다.'
                 elif len(unique_lags) >= 2:
                     lag_list_text = ", ".join([f"{x}개월" for x in unique_lags])
                     lag_line = (
