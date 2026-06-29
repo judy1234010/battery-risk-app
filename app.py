@@ -676,10 +676,16 @@ def simulate_intervention(base_row, panel_row, entropy_df, panel_df, lead_compar
     sig = get_signals_for_axis(lead_compare_df, chain, target_axis)
     if not sig.empty and "최적lag개월" in sig.columns:
         top_sig = sig.head(3).copy()
-        rec_lag = int(round(top_sig["최적lag개월"].median()))
+        lag_vals = pd.to_numeric(top_sig["최적lag개월"], errors="coerce").dropna().astype(int).tolist()
+        unique_lags = sorted(set(lag_vals))
+        top_signal_name = str(top_sig.iloc[0]["지표"]) if "지표" in top_sig.columns and not top_sig.empty else None
+        primary_lag = int(top_sig.iloc[0]["최적lag개월"]) if not top_sig.empty else None
     else:
         top_sig = pd.DataFrame()
-        rec_lag = None
+        lag_vals = []
+        unique_lags = []
+        top_signal_name = None
+        primary_lag = None
 
     return {
         "old_raw": old_raw,
@@ -700,7 +706,10 @@ def simulate_intervention(base_row, panel_row, entropy_df, panel_df, lead_compar
         "scenario_basis": sc["basis"],
         "axis": target_axis,
         "signal_table": top_sig,
-        "recommended_lag": rec_lag,
+        "lag_values": lag_vals,
+        "unique_lags": unique_lags,
+        "top_signal_name": top_signal_name,
+        "primary_lag": primary_lag,
         "impact_rate": sc["impact_rate"],
         "alt_plus": sc["alt_plus"],
         "target_col": target_col,
@@ -1254,11 +1263,28 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
             basis_html = f'<ul style="margin:0;padding-left:20px;"><li>{sim["scenario_basis"]}</li></ul>'
             render_section_card("이 대응유형에 대한 근거", basis_html, tone="green", icon="🧾")
 
-            if sim["recommended_lag"] is not None:
+            if sim["signal_table"] is not None and not sim["signal_table"].empty:
+                unique_lags = sim.get("unique_lags", [])
+                primary_lag = sim.get("primary_lag", None)
+                top_signal_name = sim.get("top_signal_name", None)
+
+                if len(unique_lags) == 1:
+                    lag_line = f'상위 후보들의 최적 lag가 모두 <b>{unique_lags[0]}개월</b>로 일치하므로, 약 <b>{unique_lags[0]}개월 전부터 대응을 착수</b>하는 해석이 가능합니다.'
+                elif len(unique_lags) >= 2:
+                    lag_list_text = ", ".join([f"{x}개월" for x in unique_lags])
+                    lag_line = (
+                        f'상위 후보들의 최적 lag가 <b>{lag_list_text}</b>로 서로 다르므로, 단일 대표 lag 하나로 고정하기보다 '
+                        f'<b>아래 상위후보 표의 각 지표별 최적 lag에 맞춰 대응을 준비</b>하는 것이 가장 적절합니다. '
+                        f'실무상 대표 시점을 하나만 제시해야 한다면, 절대상관이 가장 큰 <code>{top_signal_name}</code>의 최적 lag인 '
+                        f'<b>{primary_lag}개월</b>을 우선 기준으로 볼 수 있습니다.'
+                    )
+                else:
+                    lag_line = '관련 선행지표의 최적 lag 정보를 확인할 수 없었습니다.'
+
                 signal_html = (
                     f'<ul style="margin:0;padding-left:20px;">'
                     f'<li>이 대응유형은 주로 <b>{sim["axis"]} 축</b>과 연결됩니다.</li>'
-                    f'<li>관련 선행지표의 대표 최적 lag를 보면, <b>약 {sim["recommended_lag"]}개월 전부터 대응을 착수하는 것이 상대적으로 유리</b>합니다.</li>'
+                    f'<li>{lag_line}</li>'
                     f'<li>즉, 같은 축의 선행지표가 경계수준에 근접하면 실제 조달·계약·물류 대응을 그 시점 이전부터 준비하는 방식으로 활용할 수 있습니다.</li>'
                     f'</ul>'
                 )
