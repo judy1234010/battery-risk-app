@@ -82,17 +82,25 @@ def safe_ym(x, year=None, month=None):
             return f"{int(year):04d}-{int(month):02d}"
         except Exception:
             pass
+
     if pd.isna(x):
         return None
+
     if isinstance(x, pd.Timestamp):
         return f"{x.year:04d}-{x.month:02d}"
+
     if isinstance(x, str):
         s = x.strip()
         for sep in ["-", "/", "."]:
             parts = s.split(sep)
             if len(parts) >= 2:
                 try:
-                    y = int(parts[0]); m = int(parts[1])
+                    y = int(parts[0])
+                    m_str = parts[1]
+                    if len(m_str) == 1 and m_str == "1":
+                        m = 10
+                    else:
+                        m = int(m_str)
                     if 1 <= m <= 12:
                         return f"{y:04d}-{m:02d}"
                 except Exception:
@@ -102,13 +110,34 @@ def safe_ym(x, year=None, month=None):
             return f"{dt.year:04d}-{dt.month:02d}"
         except Exception:
             return s
+
     if isinstance(x, (int, np.integer)):
         s = str(int(x))
         if len(s) == 6 and s.isdigit():
-            y = int(s[:4]); m = int(s[4:])
+            y = int(s[:4])
+            m = int(s[4:])
             if 1 <= m <= 12:
                 return f"{y:04d}-{m:02d}"
         return s
+
+    if isinstance(x, (float, np.floating)):
+        s = str(x)
+        if "." in s:
+            left, right = s.split(".", 1)
+            try:
+                y = int(left)
+                right = right.rstrip("0")
+                if right == "1":
+                    m = 10
+                elif right.isdigit():
+                    m = int(right)
+                else:
+                    m = None
+                if m is not None and 1 <= m <= 12:
+                    return f"{y:04d}-{m:02d}"
+            except Exception:
+                pass
+
     return None
 
 def ensure_ym_column(df: pd.DataFrame) -> pd.DataFrame:
@@ -405,21 +434,22 @@ def get_tpu_month_story(tpu_df, selected_month):
     tmp = tpu_df.copy()
     if "연월" not in tmp.columns:
         tmp = ensure_ym_column(tmp)
+    else:
+        tmp["연월"] = tmp["연월"].apply(safe_ym)
     if "연월" not in tmp.columns:
         return None
+
     row = tmp[tmp["연월"] == selected_month].copy()
     if row.empty:
         return None
     row = row.iloc[0]
 
-    # 우선순위: 서사배경 > 배경/설명/비고/이슈
     for c in ["서사배경", "배경", "설명", "비고", "이슈", "내러티브"]:
         if c in row.index:
             val = row[c]
             if pd.notna(val) and str(val).strip() not in ["", "nan", "None"]:
                 return str(val).strip()
 
-    # 부분 일치 fallback
     candidate_cols = [c for c in tmp.columns if any(k in str(c) for k in ["서사", "배경", "설명", "비고", "이슈", "내러티브"])]
     for c in candidate_cols:
         val = row.get(c, None)
@@ -445,13 +475,13 @@ def simulate_intervention(base_row, panel_row, entropy_df, panel_df, lead_compar
                 "impact_rate": 0.08,
                 "alt_plus": 0,
                 "desc": "가격 급등분의 일부를 계약조건으로 흡수하는 대응",
-                "basis": "공급선 수 자체는 바꾸지 않고 가격 변동 노출만 줄이는 대응이므로 대체조달가능성은 직접 개선되지 않는 것으로 가정"
+                "basis": "공급선 구조 불변, 가격 변동노출 축소 대응"
             },
             "환헤지·원재료 헤지 적용": {
                 "impact_rate": 0.06,
                 "alt_plus": 0,
                 "desc": "환율·원재료 가격 변동성 자체를 일부 완화하는 대응",
-                "basis": "헤지는 가격 변동성 완화 수단이지 공급국 다변화 수단은 아니므로 대체조달가능성 추가조정은 0으로 설정"
+                "basis": "헤지 중심 가격변동성 완화 대응, 대체조달 직접효과 없음"
             },
         },
         "수급": {
@@ -459,13 +489,13 @@ def simulate_intervention(base_row, panel_row, entropy_df, panel_df, lead_compar
                 "impact_rate": 0.10,
                 "alt_plus": 8,
                 "desc": "공급국 집중도를 낮추고 대체조달 가능성을 높이는 대응",
-                "basis": "공급선 다변화는 수급축을 직접 완화하고 대체 가능 공급선 확보 효과가 있으므로 가장 큰 개선율과 대체조달 개선을 부여"
+                "basis": "공급선 다변화 기반 수급완화 및 대체가능성 개선"
             },
             "안전재고 확충·선행발주": {
                 "impact_rate": 0.06,
                 "alt_plus": 4,
                 "desc": "단기 공급차질 흡수력을 높이는 대응",
-                "basis": "공급국 구조 자체 변화는 제한적이지만 단기 차질 흡수력은 증가하므로 수급축은 보수적으로 완화하고 대체조달도 소폭 개선으로 반영"
+                "basis": "단기 차질 흡수력 보강 중심 수급완화 대응"
             },
         },
         "물류": {
@@ -473,13 +503,13 @@ def simulate_intervention(base_row, panel_row, entropy_df, panel_df, lead_compar
                 "impact_rate": 0.08,
                 "alt_plus": 3,
                 "desc": "물류 병목 리스크를 분산하는 대응",
-                "basis": "동일 공급선을 유지해도 운송 대안이 늘어나면 실질 조달 유연성이 일부 높아지므로 물류축 완화와 소폭의 대체조달 개선을 반영"
+                "basis": "운송 대안 확충 기반 물류완화 및 조달유연성 소폭 개선"
             },
             "리드타임 반영 안전재고 운영": {
                 "impact_rate": 0.05,
                 "alt_plus": 2,
                 "desc": "운송 차질 시 버틸 수 있는 완충재고를 확보하는 대응",
-                "basis": "운송 차질 영향은 줄이지만 공급선 구조 변화는 적어 개선율과 대체조달 가점 모두 보수적으로 설정"
+                "basis": "재고 완충기능 중심 물류완화 대응"
             },
         },
         "정책이벤트": {
@@ -487,13 +517,13 @@ def simulate_intervention(base_row, panel_row, entropy_df, panel_df, lead_compar
                 "impact_rate": 0.05,
                 "alt_plus": 2,
                 "desc": "정책·규제 이슈가 실제 조달지연으로 번지는 영향을 줄이는 대응",
-                "basis": "정책 충격 자체를 없애진 못하지만 기업의 통관·인증 대응력 향상으로 실제 체감영향을 일부 완화할 수 있어 보수적으로 반영"
+                "basis": "통관·인증 대응력 강화 기반 정책충격 체감완화"
             },
             "규제영향국 물량 사전전환": {
                 "impact_rate": 0.07,
                 "alt_plus": 5,
                 "desc": "정책 충격 가능성이 높은 공급선을 사전에 일부 전환하는 대응",
-                "basis": "규제 노출국 의존을 일부 줄이면 정책이벤트 리스크와 대체조달 취약이 함께 완화될 수 있어 상대적으로 큰 개선을 반영"
+                "basis": "규제노출국 의존 완화 기반 정책리스크 및 대체취약 완화"
             },
         },
     }
@@ -1110,13 +1140,10 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
 
             st.markdown(
                 f"""
-**이 대응유형에 대한 간단 근거**  
+**이 대응유형에 대한 근거**  
 - {sim['scenario_basis']}
                 """
             )
-
-            if sim["alt_plus"] == 0:
-                st.caption("참고: 이 대응은 공급선 수나 대체조달 루트를 직접 늘리는 대응이 아니므로, 대체조달가능성 점수는 변하지 않도록 처리했습니다.")
 
             if sim["recommended_lag"] is not None:
                 st.markdown(
