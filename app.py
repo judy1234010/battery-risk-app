@@ -58,9 +58,6 @@ SHEET_DESC_MAP = {
     "TPU_INDEX": "무역정책 불확실성 관련 지표(TPU_INDEX)의 월별 시트입니다. 정책이벤트리스크 계산의 원천입니다.",
 }
 
-# ---------------------------------------------------------
-# 공통 함수
-# ---------------------------------------------------------
 def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
@@ -85,21 +82,17 @@ def safe_ym(x, year=None, month=None):
             return f"{int(year):04d}-{int(month):02d}"
         except Exception:
             pass
-
     if pd.isna(x):
         return None
-
     if isinstance(x, pd.Timestamp):
         return f"{x.year:04d}-{x.month:02d}"
-
     if isinstance(x, str):
         s = x.strip()
         for sep in ["-", "/", "."]:
             parts = s.split(sep)
             if len(parts) >= 2:
                 try:
-                    y = int(parts[0])
-                    m = int(parts[1])
+                    y = int(parts[0]); m = int(parts[1])
                     if 1 <= m <= 12:
                         return f"{y:04d}-{m:02d}"
                 except Exception:
@@ -109,16 +102,13 @@ def safe_ym(x, year=None, month=None):
             return f"{dt.year:04d}-{dt.month:02d}"
         except Exception:
             return s
-
     if isinstance(x, (int, np.integer)):
         s = str(int(x))
         if len(s) == 6 and s.isdigit():
-            y = int(s[:4])
-            m = int(s[4:])
+            y = int(s[:4]); m = int(s[4:])
             if 1 <= m <= 12:
                 return f"{y:04d}-{m:02d}"
         return s
-
     return None
 
 def ensure_ym_column(df: pd.DataFrame) -> pd.DataFrame:
@@ -147,17 +137,13 @@ def ensure_ym_column(df: pd.DataFrame) -> pd.DataFrame:
         df["연월"] = df["연월"].apply(safe_ym)
         return df
 
-    # 날짜 후보 컬럼 탐색
     for c in cols:
         lc = str(c).lower()
         if "date" in lc or "month" in lc:
-            try:
-                dt = pd.to_datetime(df[c], errors="coerce")
-                if dt.notna().sum() > 0:
-                    df["연월"] = dt.dt.strftime("%Y-%m")
-                    return df
-            except Exception:
-                pass
+            dt = pd.to_datetime(df[c], errors="coerce")
+            if dt.notna().sum() > 0:
+                df["연월"] = dt.dt.strftime("%Y-%m")
+                return df
 
     return df
 
@@ -230,15 +216,12 @@ def build_download_excel(sheets_dict):
 def aggregate_country_view(country_df: pd.DataFrame) -> pd.DataFrame:
     if country_df is None or country_df.empty:
         return pd.DataFrame()
-
     tmp = country_df.copy()
-
     if "국가별수입비중" not in tmp.columns:
         for fallback in ["금액비중", "중량비중"]:
             if fallback in tmp.columns:
                 tmp["국가별수입비중"] = safe_numeric(tmp[fallback])
                 break
-
     if "국가수입금액" in tmp.columns:
         tmp["_w"] = safe_numeric(tmp["국가수입금액"]).fillna(0)
     else:
@@ -284,7 +267,6 @@ def aggregate_country_view(country_df: pd.DataFrame) -> pd.DataFrame:
 def describe_sheet(sheet_name: str) -> str:
     if sheet_name in SHEET_DESC_MAP:
         return SHEET_DESC_MAP[sheet_name]
-
     s = str(sheet_name).upper()
     if "HIDDEN" in s or "숨김" in s:
         return "숨김 또는 보조 계산용 시트입니다. 중간 산출값이나 검증값을 담고 있을 가능성이 높습니다."
@@ -334,12 +316,8 @@ def get_weight_map(entropy_df, stage, chain):
 
 def add_priority_metrics(alert_df, panel_df, compare_df):
     df = alert_df.copy()
-
     if "최종위험점수(원점수)" not in df.columns and "최종위험점수(원점수)" in panel_df.columns:
-        df = df.merge(
-            panel_df[["연월", "체인구분", "최종위험점수(원점수)"]],
-            on=["연월", "체인구분"], how="left"
-        )
+        df = df.merge(panel_df[["연월", "체인구분", "최종위험점수(원점수)"]], on=["연월", "체인구분"], how="left")
 
     keep = [
         "체인구분",
@@ -360,13 +338,7 @@ def add_priority_metrics(alert_df, panel_df, compare_df):
 
     df["Q75_초과폭"] = safe_numeric(df["상대위험지수(정규화값)"]) - safe_numeric(df["상대위험지수_Q75"])
     df["Q25_미달폭"] = safe_numeric(df["대체조달가능성_Q25"]) - safe_numeric(df["대체조달가능성_점수"])
-
-    # 관리강도: Y/N와 무관하게 두 축의 초과/미달 강도를 합산
-    df["우선관리강도"] = (
-        df["Q75_초과폭"].clip(lower=0).fillna(0) +
-        df["Q25_미달폭"].clip(lower=0).fillna(0)
-    )
-
+    df["우선관리강도"] = df["Q75_초과폭"].clip(lower=0).fillna(0) + df["Q25_미달폭"].clip(lower=0).fillna(0)
     return df
 
 def metric_help_text(metric_name, row):
@@ -377,23 +349,15 @@ def metric_help_text(metric_name, row):
     alt_q25 = row.get("대체조달가능성_Q25", np.nan)
 
     if metric_name == "우선관리대상":
-        if priority == "Y":
-            return "Y = 고위험·저대체조달 동시 충족"
-        return "N = 두 조건을 동시에 충족하지 않음"
-
+        return "Y = 고위험·저대체조달 동시 충족" if priority == "Y" else "N = 두 조건을 동시에 충족하지 않음"
     if metric_name == "관리강도":
         return "산식: max(Q75초과폭,0)+max(Q25미달폭,0)"
-
     if metric_name == "Q75초과폭":
-        if pd.notna(q75_gap) and q75_gap > 0:
-            return "현재 상대위험지수가 체인 상위구간을 초과"
-        return "체인 상위구간(Q75) 이내"
-
+        return "현재 상대위험지수가 체인 상위구간을 초과" if pd.notna(q75_gap) and q75_gap > 0 else "체인 상위구간(Q75) 이내"
     if metric_name == "Q25미달폭":
         if pd.notna(q25_gap) and q25_gap > 0:
             return f"대체조달가능성 {fmt_num(alt_score)}가 Q25({fmt_num(alt_q25)})보다 낮음"
         return f"대체조달가능성 {fmt_num(alt_score)}가 Q25({fmt_num(alt_q25)}) 이상"
-
     return ""
 
 def build_quadrant_annotations_fixed():
@@ -438,27 +402,29 @@ def get_signals_for_axis(lead_compare_df, chain, axis_name):
 def get_tpu_month_story(tpu_df, selected_month):
     if tpu_df is None or tpu_df.empty or not selected_month:
         return None
-
     tmp = tpu_df.copy()
     if "연월" not in tmp.columns:
         tmp = ensure_ym_column(tmp)
     if "연월" not in tmp.columns:
         return None
-
     row = tmp[tmp["연월"] == selected_month].copy()
     if row.empty:
         return None
     row = row.iloc[0]
 
+    # 우선순위: 서사배경 > 배경/설명/비고/이슈
+    for c in ["서사배경", "배경", "설명", "비고", "이슈", "내러티브"]:
+        if c in row.index:
+            val = row[c]
+            if pd.notna(val) and str(val).strip() not in ["", "nan", "None"]:
+                return str(val).strip()
+
+    # 부분 일치 fallback
     candidate_cols = [c for c in tmp.columns if any(k in str(c) for k in ["서사", "배경", "설명", "비고", "이슈", "내러티브"])]
-    texts = []
     for c in candidate_cols:
         val = row.get(c, None)
         if pd.notna(val) and str(val).strip() not in ["", "nan", "None"]:
-            texts.append(f"{c}: {val}")
-
-    if texts:
-        return " / ".join(texts[:3])
+            return str(val).strip()
 
     return None
 
@@ -475,24 +441,63 @@ def simulate_intervention(base_row, panel_row, entropy_df, panel_df, lead_compar
 
     scenarios = {
         "가격": {
-            "장기고정가·가격연동 계약 재협상": {"impact_rate": 0.08, "alt_plus": 0, "desc": "가격 급등분의 일부를 계약조건으로 흡수하는 대응"},
-            "환헤지·원재료 헤지 적용": {"impact_rate": 0.06, "alt_plus": 0, "desc": "환율·원재료 가격 변동성 자체를 일부 완화하는 대응"},
+            "장기고정가·가격연동 계약 재협상": {
+                "impact_rate": 0.08,
+                "alt_plus": 0,
+                "desc": "가격 급등분의 일부를 계약조건으로 흡수하는 대응",
+                "basis": "공급선 수 자체는 바꾸지 않고 가격 변동 노출만 줄이는 대응이므로 대체조달가능성은 직접 개선되지 않는 것으로 가정"
+            },
+            "환헤지·원재료 헤지 적용": {
+                "impact_rate": 0.06,
+                "alt_plus": 0,
+                "desc": "환율·원재료 가격 변동성 자체를 일부 완화하는 대응",
+                "basis": "헤지는 가격 변동성 완화 수단이지 공급국 다변화 수단은 아니므로 대체조달가능성 추가조정은 0으로 설정"
+            },
         },
         "수급": {
-            "보조공급국 추가 발굴·발주분산": {"impact_rate": 0.10, "alt_plus": 8, "desc": "공급국 집중도를 낮추고 대체조달 가능성을 높이는 대응"},
-            "안전재고 확충·선행발주": {"impact_rate": 0.06, "alt_plus": 4, "desc": "단기 공급차질 흡수력을 높이는 대응"},
+            "보조공급국 추가 발굴·발주분산": {
+                "impact_rate": 0.10,
+                "alt_plus": 8,
+                "desc": "공급국 집중도를 낮추고 대체조달 가능성을 높이는 대응",
+                "basis": "공급선 다변화는 수급축을 직접 완화하고 대체 가능 공급선 확보 효과가 있으므로 가장 큰 개선율과 대체조달 개선을 부여"
+            },
+            "안전재고 확충·선행발주": {
+                "impact_rate": 0.06,
+                "alt_plus": 4,
+                "desc": "단기 공급차질 흡수력을 높이는 대응",
+                "basis": "공급국 구조 자체 변화는 제한적이지만 단기 차질 흡수력은 증가하므로 수급축은 보수적으로 완화하고 대체조달도 소폭 개선으로 반영"
+            },
         },
         "물류": {
-            "복수 운송경로 확보·운송사 분산": {"impact_rate": 0.08, "alt_plus": 3, "desc": "물류 병목 리스크를 분산하는 대응"},
-            "리드타임 반영 안전재고 운영": {"impact_rate": 0.05, "alt_plus": 2, "desc": "운송 차질 시 버틸 수 있는 완충재고를 확보하는 대응"},
+            "복수 운송경로 확보·운송사 분산": {
+                "impact_rate": 0.08,
+                "alt_plus": 3,
+                "desc": "물류 병목 리스크를 분산하는 대응",
+                "basis": "동일 공급선을 유지해도 운송 대안이 늘어나면 실질 조달 유연성이 일부 높아지므로 물류축 완화와 소폭의 대체조달 개선을 반영"
+            },
+            "리드타임 반영 안전재고 운영": {
+                "impact_rate": 0.05,
+                "alt_plus": 2,
+                "desc": "운송 차질 시 버틸 수 있는 완충재고를 확보하는 대응",
+                "basis": "운송 차질 영향은 줄이지만 공급선 구조 변화는 적어 개선율과 대체조달 가점 모두 보수적으로 설정"
+            },
         },
         "정책이벤트": {
-            "통관·인증 문서 선제점검": {"impact_rate": 0.05, "alt_plus": 2, "desc": "정책·규제 이슈가 실제 조달지연으로 번지는 영향을 줄이는 대응"},
-            "규제영향국 물량 사전전환": {"impact_rate": 0.07, "alt_plus": 5, "desc": "정책 충격 가능성이 높은 공급선을 사전에 일부 전환하는 대응"},
+            "통관·인증 문서 선제점검": {
+                "impact_rate": 0.05,
+                "alt_plus": 2,
+                "desc": "정책·규제 이슈가 실제 조달지연으로 번지는 영향을 줄이는 대응",
+                "basis": "정책 충격 자체를 없애진 못하지만 기업의 통관·인증 대응력 향상으로 실제 체감영향을 일부 완화할 수 있어 보수적으로 반영"
+            },
+            "규제영향국 물량 사전전환": {
+                "impact_rate": 0.07,
+                "alt_plus": 5,
+                "desc": "정책 충격 가능성이 높은 공급선을 사전에 일부 전환하는 대응",
+                "basis": "규제 노출국 의존을 일부 줄이면 정책이벤트 리스크와 대체조달 취약이 함께 완화될 수 있어 상대적으로 큰 개선을 반영"
+            },
         },
     }
 
-    # 어떤 대응이 어떤 축에 속하는지 찾기
     target_axis = None
     sc = None
     for axis_name, actions in scenarios.items():
@@ -502,7 +507,6 @@ def simulate_intervention(base_row, panel_row, entropy_df, panel_df, lead_compar
             break
 
     target_col = axis_map[target_axis]
-
     old_raw = float(base_row["최종위험점수(원점수)"])
     old_rel = float(base_row["상대위험지수(정규화값)"])
     old_alt = float(base_row["대체조달가능성_점수"])
@@ -510,9 +514,8 @@ def simulate_intervention(base_row, panel_row, entropy_df, panel_df, lead_compar
     axis_val = float(panel_row.get(target_col, 0))
     axis_weight = float(final_weights.get(target_col, 0.25))
 
-    # 객관적 기준: 해당 축 점수 × 체인별 최종가중치 × 대응유형별 기준개선율
     raw_reduction = axis_val * axis_weight * sc["impact_rate"]
-    raw_reduction = min(raw_reduction, old_raw * 0.15)  # 과도한 개선 방지 상한
+    raw_reduction = min(raw_reduction, old_raw * 0.15)
     new_raw = max(0.0, old_raw - raw_reduction)
 
     chain_panel = panel_df[panel_df["체인구분"] == chain].copy()
@@ -558,6 +561,7 @@ def simulate_intervention(base_row, panel_row, entropy_df, panel_df, lead_compar
         "new_q75_gap": new_q75_gap,
         "new_q25_gap": new_q25_gap,
         "scenario_desc": sc["desc"],
+        "scenario_basis": sc["basis"],
         "axis": target_axis,
         "signal_table": top_sig,
         "recommended_lag": rec_lag,
@@ -640,9 +644,6 @@ def load_excel(uploaded_file):
         "tpu": tpu,
     }
 
-# ---------------------------------------------------------
-# 앱 시작
-# ---------------------------------------------------------
 style_metric_container()
 
 uploaded_file = st.sidebar.file_uploader("최종 확정본 엑셀 업로드", type=["xlsx"])
@@ -719,9 +720,6 @@ panel_chain = month_chain_slice(panel, None, selected_chain).sort_values("연월
 alert_chain = month_chain_slice(alert, None, selected_chain).sort_values("연월") if selected_chain else pd.DataFrame()
 compare_chain = compare[compare["체인구분"] == selected_chain].copy() if selected_chain else pd.DataFrame()
 
-# ---------------------------------------------------------
-# 1. 종합 상황판
-# ---------------------------------------------------------
 if menu == "1. 종합 상황판":
     st.header("1. 종합 상황판")
 
@@ -794,11 +792,7 @@ if menu == "1. 종합 상황판":
             "축": ["가격리스크점수", "수급리스크점수", "물류리스크점수", "정책이벤트리스크점수"],
             "점수": [r["가격리스크점수"], r["수급리스크점수"], r["물류리스크점수"], r["정책이벤트리스크점수"]]
         })
-        fig = px.bar(
-            contrib, x="축", y="점수", color="축",
-            color_discrete_map=AXIS_COLOR_MAP,
-            title=f"{chain} · 최종위험점수 구성축"
-        )
+        fig = px.bar(contrib, x="축", y="점수", color="축", color_discrete_map=AXIS_COLOR_MAP, title=f"{chain} · 최종위험점수 구성축")
         fig.update_layout(showlegend=False, height=320)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -813,19 +807,12 @@ if menu == "1. 종합 상황판":
         color_discrete_map=CHAIN_COLOR_MAP,
         hover_data=["Q75_초과폭", "Q25_미달폭", "우선관리강도", "보정사유"]
     )
-
     for _, r in summary.iterrows():
         fig2.add_hline(y=r["상대위험지수_Q75"], line_dash="dot", line_color=CHAIN_COLOR_MAP.get(r["체인구분"], "#999"))
         fig2.add_vline(x=r["대체조달가능성_Q25"], line_dash="dot", line_color=CHAIN_COLOR_MAP.get(r["체인구분"], "#999"))
-
     for ann in build_quadrant_annotations_fixed():
         fig2.add_annotation(**ann)
-
-    fig2.update_layout(
-        height=430,
-        xaxis_title="대체조달가능성 점수",
-        yaxis_title="상대위험지수(정규화값)"
-    )
+    fig2.update_layout(height=430, xaxis_title="대체조달가능성 점수", yaxis_title="상대위험지수(정규화값)")
     st.plotly_chart(fig2, use_container_width=True)
 
     st.markdown("### 체인별 종합표")
@@ -838,9 +825,6 @@ if menu == "1. 종합 상황판":
         hide_index=True
     )
 
-# ---------------------------------------------------------
-# 2. 체인별 심층 분석
-# ---------------------------------------------------------
 elif menu == "2. 체인별 심층 분석":
     st.header("2. 체인별 심층 분석")
 
@@ -858,47 +842,25 @@ elif menu == "2. 체인별 심층 분석":
         qdf = compare[["체인구분", "상대위험지수_Q25", "상대위험지수_Q50", "상대위험지수_Q75"]].copy()
         qdf = qdf.rename(columns={"상대위험지수_Q25": "Q25", "상대위험지수_Q50": "Q50", "상대위험지수_Q75": "Q75"})
         qdf = qdf.melt(id_vars="체인구분", var_name="구간", value_name="값")
-        fig = px.bar(
-            qdf, x="구간", y="값", color="체인구분",
-            barmode="group", color_discrete_map=CHAIN_COLOR_MAP,
-            title="체인별 상대위험지수 분위수"
-        )
+        fig = px.bar(qdf, x="구간", y="값", color="체인구분", barmode="group", color_discrete_map=CHAIN_COLOR_MAP, title="체인별 상대위험지수 분위수")
         fig.update_xaxes(tickangle=0)
         st.plotly_chart(fig, use_container_width=True)
 
     with c2:
         qdf2 = compare[["체인구분", "최종위험점수(원점수)_Q25", "최종위험점수(원점수)_Q50", "최종위험점수(원점수)_Q75"]].copy()
-        qdf2 = qdf2.rename(columns={
-            "최종위험점수(원점수)_Q25": "Q25",
-            "최종위험점수(원점수)_Q50": "Q50",
-            "최종위험점수(원점수)_Q75": "Q75"
-        })
+        qdf2 = qdf2.rename(columns={"최종위험점수(원점수)_Q25": "Q25", "최종위험점수(원점수)_Q50": "Q50", "최종위험점수(원점수)_Q75": "Q75"})
         qdf2 = qdf2.melt(id_vars="체인구분", var_name="구간", value_name="값")
-        fig2 = px.bar(
-            qdf2, x="구간", y="값", color="체인구분",
-            barmode="group", color_discrete_map=CHAIN_COLOR_MAP,
-            title="체인별 최종위험점수(원점수) 분위수"
-        )
+        fig2 = px.bar(qdf2, x="구간", y="값", color="체인구분", barmode="group", color_discrete_map=CHAIN_COLOR_MAP, title="체인별 최종위험점수(원점수) 분위수")
         fig2.update_xaxes(tickangle=0)
         st.plotly_chart(fig2, use_container_width=True)
 
     st.subheader("체인별 월별 추이")
     tab1, tab2 = st.tabs(["최종위험점수(원점수) 추이", "상대위험지수 추이"])
-
     with tab1:
-        fig3 = px.line(
-            panel, x="연월", y="최종위험점수(원점수)", color="체인구분",
-            markers=True, color_discrete_map=CHAIN_COLOR_MAP,
-            title="체인별 최종위험점수(원점수) 추이"
-        )
+        fig3 = px.line(panel, x="연월", y="최종위험점수(원점수)", color="체인구분", markers=True, color_discrete_map=CHAIN_COLOR_MAP, title="체인별 최종위험점수(원점수) 추이")
         st.plotly_chart(fig3, use_container_width=True)
-
     with tab2:
-        fig4 = px.line(
-            panel, x="연월", y="상대위험지수(정규화값)", color="체인구분",
-            markers=True, color_discrete_map=CHAIN_COLOR_MAP,
-            title="체인별 상대위험지수 추이"
-        )
+        fig4 = px.line(panel, x="연월", y="상대위험지수(정규화값)", color="체인구분", markers=True, color_discrete_map=CHAIN_COLOR_MAP, title="체인별 상대위험지수 추이")
         st.plotly_chart(fig4, use_container_width=True)
 
     st.subheader("4대 리스크 평균 비교")
@@ -911,17 +873,10 @@ elif menu == "2. 체인별 심층 분석":
     }
     a = compare[["체인구분"] + axis_cols].melt(id_vars="체인구분", var_name="항목", value_name="값")
     a["항목"] = a["항목"].map(axis_map_name)
-    fig5 = px.bar(
-        a, x="항목", y="값", color="체인구분",
-        barmode="group", color_discrete_map=CHAIN_COLOR_MAP,
-        title="체인별 4대 리스크 평균 비교"
-    )
+    fig5 = px.bar(a, x="항목", y="값", color="체인구분", barmode="group", color_discrete_map=CHAIN_COLOR_MAP, title="체인별 4대 리스크 평균 비교")
     fig5.update_xaxes(tickangle=0)
     st.plotly_chart(fig5, use_container_width=True)
 
-# ---------------------------------------------------------
-# 3. 국가/공급선 상세 분석
-# ---------------------------------------------------------
 elif menu == "3. 국가/공급선 상세 분석":
     st.header("3. 국가/공급선 상세 분석")
 
@@ -941,44 +896,18 @@ elif menu == "3. 국가/공급선 상세 분석":
         show = ctry_agg.head(top_n).copy()
 
         left, right = st.columns(2)
-
         with left:
-            fig = px.bar(
-                show.sort_values("국가별수입비중"),
-                x="국가별수입비중",
-                y="국가명",
-                orientation="h",
-                color="국가공급선_최종판정",
-                color_discrete_map=GRADE_COLOR_MAP,
-                title=f"{selected_month} {selected_chain} 국가별 수입비중"
-            )
+            fig = px.bar(show.sort_values("국가별수입비중"), x="국가별수입비중", y="국가명", orientation="h", color="국가공급선_최종판정", color_discrete_map=GRADE_COLOR_MAP, title=f"{selected_month} {selected_chain} 국가별 수입비중")
             st.plotly_chart(fig, use_container_width=True)
-
         with right:
-            fig2 = px.scatter(
-                show,
-                x="최종보정점수",
-                y="국가별수입비중",
-                color="FTA여부" if "FTA여부" in show.columns else None,
-                size=np.maximum(safe_numeric(show.get("국가수입금액", 1)).fillna(1), 1),
-                hover_data=[c for c in ["국가명", "지역권", "국가기본위험_평가등급", "국가공급선_최종판정"] if c in show.columns],
-                title="국가별 최종보정점수 vs 수입비중"
-            )
+            fig2 = px.scatter(show, x="최종보정점수", y="국가별수입비중", color="FTA여부" if "FTA여부" in show.columns else None, size=np.maximum(safe_numeric(show.get("국가수입금액", 1)).fillna(1), 1), hover_data=[c for c in ["국가명", "지역권", "국가기본위험_평가등급", "국가공급선_최종판정"] if c in show.columns], title="국가별 최종보정점수 vs 수입비중")
             fig2.update_xaxes(title="최종보정점수(낮을수록 상대적으로 안정)")
             fig2.update_yaxes(title="국가별 수입비중")
             st.plotly_chart(fig2, use_container_width=True)
 
-        out_cols = [c for c in [
-            "국가명", "지역권", "FTA여부", "상위공급국여부", "국가별수입비중",
-            "국가수입금액", "기본평가점수", "국가기본위험_평가등급",
-            "최종보정점수", "국가공급선_최종판정", "비고"
-        ] if c in show.columns]
-
+        out_cols = [c for c in ["국가명", "지역권", "FTA여부", "상위공급국여부", "국가별수입비중", "국가수입금액", "기본평가점수", "국가기본위험_평가등급", "최종보정점수", "국가공급선_최종판정", "비고"] if c in show.columns]
         st.dataframe(show[out_cols], use_container_width=True, hide_index=True)
 
-# ---------------------------------------------------------
-# 4. 충격 원인 추적
-# ---------------------------------------------------------
 elif menu == "4. 충격 원인 추적":
     st.header("4. 충격 원인 추적")
 
@@ -1009,26 +938,18 @@ elif menu == "4. 충격 원인 추적":
             "축": ["가격리스크점수", "수급리스크점수", "물류리스크점수", "정책이벤트리스크점수"],
             "값": [prow["가격리스크점수"], prow["수급리스크점수"], prow["물류리스크점수"], prow["정책이벤트리스크점수"]],
         })
-        fig = px.bar(
-            comp, x="축", y="값", color="축",
-            color_discrete_map=AXIS_COLOR_MAP,
-            title=f"{selected_month} {selected_chain} 4대 리스크"
-        )
+        fig = px.bar(comp, x="축", y="값", color="축", color_discrete_map=AXIS_COLOR_MAP, title=f"{selected_month} {selected_chain} 4대 리스크")
         st.plotly_chart(fig, use_container_width=True)
+
+        tpu_story = get_tpu_month_story(tpu, selected_month)
+        if tpu_story:
+            st.caption(f"정책이벤트리스크 서사배경 ({selected_month}): {tpu_story}")
 
         st.markdown(
             f"- 상대위험지수 분위수 경계: **Q25 ({fmt_num(crow['상대위험지수_Q25'])}) / Q50 ({fmt_num(crow['상대위험지수_Q50'])}) / Q75 ({fmt_num(crow['상대위험지수_Q75'])})**  \n"
             f"- 원점수 분위수 경계: **Q25 ({fmt_num(crow['최종위험점수(원점수)_Q25'])}) / Q50 ({fmt_num(crow['최종위험점수(원점수)_Q50'])}) / Q75 ({fmt_num(crow['최종위험점수(원점수)_Q75'])})**"
         )
 
-        tpu_story = get_tpu_month_story(tpu, selected_month)
-        if tpu_story:
-            st.markdown("#### TPU_INDEX 연월별 해석배경")
-            st.info(tpu_story)
-
-# ---------------------------------------------------------
-# 5. 선행 신호 후보 탐지
-# ---------------------------------------------------------
 elif menu == "5. 선행 신호 후보 탐지":
     st.header("5. 선행 신호 후보 탐지")
 
@@ -1048,32 +969,15 @@ elif menu == "5. 선행 신호 후보 탐지":
         rank_df["최적lag개월_문자"] = rank_df["최적lag개월"].astype(int).astype(str)
 
     c1, c2 = st.columns(2)
-
     with c1:
-        fig = px.bar(
-            rank_df.sort_values("최적lag절대상관"),
-            x="최적lag절대상관",
-            y="지표",
-            orientation="h",
-            color="최적lag개월_문자" if not rank_df.empty else None,
-            color_discrete_map=LAG_COLOR_MAP,
-            category_orders={"최적lag개월_문자": ["1", "2", "3", "4", "5", "6"]},
-            title=f"{selected_chain} 최적 lag 상위 후보"
-        )
+        fig = px.bar(rank_df.sort_values("최적lag절대상관"), x="최적lag절대상관", y="지표", orientation="h", color="최적lag개월_문자" if not rank_df.empty else None, color_discrete_map=LAG_COLOR_MAP, category_orders={"최적lag개월_문자": ["1", "2", "3", "4", "5", "6"]}, title=f"{selected_chain} 최적 lag 상위 후보")
         st.plotly_chart(fig, use_container_width=True)
-
     with c2:
         options = rank_df["지표"].tolist() if not rank_df.empty else []
         sel_signal = st.selectbox("세부 시차를 볼 지표 선택", options if options else [""])
         if sel_signal and not chain_detail.empty:
             tmp = chain_detail[chain_detail["지표"] == sel_signal].sort_values("lag개월").copy()
-            fig2 = px.line(
-                tmp,
-                x="lag개월",
-                y="상관계수",
-                markers=True,
-                title=f"{selected_chain} · {sel_signal} lag별 상관"
-            )
+            fig2 = px.line(tmp, x="lag개월", y="상관계수", markers=True, title=f"{selected_chain} · {sel_signal} lag별 상관")
             st.plotly_chart(fig2, use_container_width=True)
 
     st.dataframe(rank_df, use_container_width=True, hide_index=True)
@@ -1094,9 +998,6 @@ elif menu == "5. 선행 신호 후보 탐지":
   3. 6번 메뉴의 대응 시뮬레이터에서 같은 축 대응전략과 연결해 사전 대응 시점을 설정
             """
         )
-# ---------------------------------------------------------
-# 6. 기업 대응 우선순위 추천 / 시뮬레이터
-# ---------------------------------------------------------
 elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
     st.header("6. 기업 대응 우선순위 추천 / 시뮬레이터")
 
@@ -1119,7 +1020,6 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
         safe_numeric(view_df["상대위험지수(정규화값)"]).fillna(0) * 0.35 +
         (100 - safe_numeric(view_df["대체조달가능성_점수"]).fillna(0)) * 0.20
     )
-
     view_df = view_df.sort_values(["추천우선순위", "연월"], ascending=[False, True]).copy()
 
     st.subheader("현재 우선순위 추천")
@@ -1145,16 +1045,12 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
         )
 
         base = view_df.loc[pick_idx]
-        base_panel = panel[
-            (panel["연월"] == base["연월"]) &
-            (panel["체인구분"] == base["체인구분"])
-        ].copy()
+        base_panel = panel[(panel["연월"] == base["연월"]) & (panel["체인구분"] == base["체인구분"])].copy()
 
         if base_panel.empty:
             st.warning("선택한 행의 PANEL_MONTHLY 데이터를 찾지 못했습니다.")
         else:
             base_panel = base_panel.iloc[0]
-
             dominant_axis_col = get_driver_axis(base_panel)
             dominant_axis_name = str(dominant_axis_col).replace("리스크점수", "") if dominant_axis_col else "수급"
 
@@ -1212,6 +1108,16 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
                 """
             )
 
+            st.markdown(
+                f"""
+**이 대응유형에 대한 간단 근거**  
+- {sim['scenario_basis']}
+                """
+            )
+
+            if sim["alt_plus"] == 0:
+                st.caption("참고: 이 대응은 공급선 수나 대체조달 루트를 직접 늘리는 대응이 아니므로, 대체조달가능성 점수는 변하지 않도록 처리했습니다.")
+
             if sim["recommended_lag"] is not None:
                 st.markdown(
                     f"""
@@ -1230,9 +1136,6 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
                     hide_index=True
                 )
 
-# ---------------------------------------------------------
-# 7. 대체국 추천 시스템
-# ---------------------------------------------------------
 elif menu == "7. 대체국 추천 시스템":
     st.header("7. 대체국 추천 시스템")
 
@@ -1256,32 +1159,14 @@ elif menu == "7. 대체국 추천 시스템":
             np.where(cand["FTA여부"] == "Y", 15, 0) +
             np.where(cand["상위공급국여부"] == "Y", -5, 5)
         )
-
         cand = cand.sort_values(["추천점수", "최종보정점수"], ascending=[False, True]).copy()
 
         left, right = st.columns(2)
-
         with left:
-            fig = px.bar(
-                cand.head(15).sort_values("추천점수"),
-                x="추천점수",
-                y="국가명",
-                orientation="h",
-                color="FTA여부" if "FTA여부" in cand.columns else None,
-                title="대체국 추천 상위 후보"
-            )
+            fig = px.bar(cand.head(15).sort_values("추천점수"), x="추천점수", y="국가명", orientation="h", color="FTA여부" if "FTA여부" in cand.columns else None, title="대체국 추천 상위 후보")
             st.plotly_chart(fig, use_container_width=True)
-
         with right:
-            fig2 = px.scatter(
-                cand.head(30),
-                x="최종보정점수",
-                y="국가별수입비중",
-                color="FTA여부" if "FTA여부" in cand.columns else None,
-                size=np.maximum(safe_numeric(cand.head(30).get("국가수입금액", 1)).fillna(1), 1),
-                hover_data=[c for c in ["국가명", "국가기본위험_평가등급", "국가공급선_최종판정", "추천점수"] if c in cand.columns],
-                title="대체국 후보 분포"
-            )
+            fig2 = px.scatter(cand.head(30), x="최종보정점수", y="국가별수입비중", color="FTA여부" if "FTA여부" in cand.columns else None, size=np.maximum(safe_numeric(cand.head(30).get("국가수입금액", 1)).fillna(1), 1), hover_data=[c for c in ["국가명", "국가기본위험_평가등급", "국가공급선_최종판정", "추천점수"] if c in cand.columns], title="대체국 후보 분포")
             st.plotly_chart(fig2, use_container_width=True)
 
         st.dataframe(
@@ -1293,9 +1178,6 @@ elif menu == "7. 대체국 추천 시스템":
             hide_index=True
         )
 
-# ---------------------------------------------------------
-# 8. 원천데이터 탐색 / 다운로드
-# ---------------------------------------------------------
 elif menu == "8. 원천데이터 탐색 / 다운로드":
     st.header("8. 원천데이터 탐색 / 다운로드")
 
@@ -1331,9 +1213,6 @@ elif menu == "8. 원천데이터 탐색 / 다운로드":
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# ---------------------------------------------------------
-# 9. 데이터 검증 / 방법론
-# ---------------------------------------------------------
 elif menu == "9. 데이터 검증 / 방법론":
     st.header("9. 데이터 검증 / 방법론")
 
@@ -1355,11 +1234,7 @@ elif menu == "9. 데이터 검증 / 방법론":
             w = entropy[entropy["단계"] == stage].copy()
             st.dataframe(w, use_container_width=True, hide_index=True)
             st.markdown("**가중치 합 점검**")
-            st.dataframe(
-                w.groupby(["단계", "체인구분"], as_index=False)["가중치"].sum(),
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(w.groupby(["단계", "체인구분"], as_index=False)["가중치"].sum(), use_container_width=True, hide_index=True)
         else:
             st.warning("가중치 단계 정보를 찾지 못했습니다.")
 
