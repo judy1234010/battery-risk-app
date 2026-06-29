@@ -306,65 +306,20 @@ def story_box(text):
 
 def render_section_card(title, body_html, tone="blue", icon="📌"):
     tone_map = {
-        "blue": {
-            "bg": "linear-gradient(135deg, #F7FAFF 0%, #EEF5FF 100%)",
-            "border": "#CFE0F5",
-            "accent": "#2A6FDB",
-            "title": "#123B70",
-            "text": "#28445C",
-        },
-        "green": {
-            "bg": "linear-gradient(135deg, #F6FFFB 0%, #EEFBF5 100%)",
-            "border": "#CFEEDD",
-            "accent": "#159A6C",
-            "title": "#11684A",
-            "text": "#285443",
-        },
-        "purple": {
-            "bg": "linear-gradient(135deg, #FAF7FF 0%, #F2ECFF 100%)",
-            "border": "#E0D6F8",
-            "accent": "#7B61C9",
-            "title": "#4D3C86",
-            "text": "#4B4670",
-        },
-        "orange": {
-            "bg": "linear-gradient(135deg, #FFF8F2 0%, #FFF1E5 100%)",
-            "border": "#F4D8BE",
-            "accent": "#D77A2F",
-            "title": "#8A4C14",
-            "text": "#6B513D",
-        },
+        "blue": {"bg": "linear-gradient(135deg, #F7FAFF 0%, #EEF5FF 100%)", "border": "#CFE0F5", "accent": "#2A6FDB", "title": "#123B70", "text": "#28445C"},
+        "green": {"bg": "linear-gradient(135deg, #F6FFFB 0%, #EEFBF5 100%)", "border": "#CFEEDD", "accent": "#159A6C", "title": "#11684A", "text": "#285443"},
+        "purple": {"bg": "linear-gradient(135deg, #FAF7FF 0%, #F2ECFF 100%)", "border": "#E0D6F8", "accent": "#7B61C9", "title": "#4D3C86", "text": "#4B4670"},
+        "orange": {"bg": "linear-gradient(135deg, #FFF8F2 0%, #FFF1E5 100%)", "border": "#F4D8BE", "accent": "#D77A2F", "title": "#8A4C14", "text": "#6B513D"},
     }
     meta = tone_map.get(tone, tone_map["blue"])
-
-    st.markdown(
-        f'''
-        <div style="
-            background:{meta['bg']};
-            border:1px solid {meta['border']};
-            border-left:7px solid {meta['accent']};
-            border-radius:18px;
-            padding:16px 18px;
-            margin:10px 0 14px 0;
-            box-shadow:0 10px 24px rgba(18,59,112,0.06);
-        ">
-            <div style="
-                font-weight:800;
-                color:{meta['title']};
-                font-size:1.02rem;
-                margin-bottom:10px;
-            ">{icon} {title}</div>
-            <div style="
-                color:{meta['text']};
-                font-size:0.95rem;
-                line-height:1.72;
-            ">
-                {body_html}
-            </div>
-        </div>
-        ''',
-        unsafe_allow_html=True
+    html = (
+        f'<div style="background:{meta["bg"]};border:1px solid {meta["border"]};border-left:7px solid {meta["accent"]};'
+        f'border-radius:18px;padding:16px 18px;margin:10px 0 14px 0;box-shadow:0 10px 24px rgba(18,59,112,0.06);">'
+        f'<div style="font-weight:800;color:{meta["title"]};font-size:1.02rem;margin-bottom:10px;">{icon} {title}</div>'
+        f'<div style="color:{meta["text"]};font-size:0.95rem;line-height:1.72;">{body_html}</div>'
+        f'</div>'
     )
+    st.markdown(html, unsafe_allow_html=True)
 
 def month_chain_slice(df, month=None, chain=None):
     tmp = df.copy()
@@ -1168,29 +1123,21 @@ elif menu == "5. 선행 신호 후보 탐지":
     if not rank_df.empty:
         g = rank_df.iloc[0]
         axis_guess = get_signal_axis(g["지표"])
-
-        guide_html = f"""
-        <ul style="margin:0; padding-left:20px;">
-            <li><b>가장 우선적으로 볼 지표</b>: <code>{g['지표']}</code></li>
-            <li><b>관련 축 추정</b>: <span style="color:#159A6C; font-weight:700;">{axis_guess}</span></li>
-            <li><b>권장 선행 점검 시점</b>: 약 <b>{int(g['최적lag개월'])}개월 전</b>부터 집중 모니터링</li>
-            <li><b>해석 포인트</b>: 이 지표는 최종위험점수와의 절대상관이 <b>{fmt_num(g['최적lag절대상관'], 3)}</b>로 크게 나타났습니다.</li>
-        </ul>
-        <div style="
-            margin-top:10px;
-            padding:10px 12px;
-            border-radius:12px;
-            background:rgba(255,255,255,0.72);
-            border:1px dashed #D9DFF0;
-        ">
-            <div style="font-weight:700; color:#4D3C86; margin-bottom:6px;">🛠️ 실무 활용 예시</div>
-            <ol style="margin:0; padding-left:20px;">
-                <li>월간 조기경보 보고서에 해당 지표를 별도 선행지표로 포함</li>
-                <li>최적 lag 개월수만큼 앞서 임계치 이탈 여부를 점검</li>
-                <li>6번 메뉴의 대응 시뮬레이터에서 같은 축 대응전략과 연결해 사전 대응 시점을 설정</li>
-            </ol>
-        </div>
-        """
+        guide_html = (
+            f'<ul style="margin:0;padding-left:20px;">'
+            f'<li><b>가장 우선적으로 볼 지표</b>: <code>{g["지표"]}</code></li>'
+            f'<li><b>관련 축 추정</b>: <span style="color:#159A6C;font-weight:700;">{axis_guess}</span></li>'
+            f'<li><b>권장 선행 점검 시점</b>: 약 <b>{int(g["최적lag개월"])}개월 전</b>부터 집중 모니터링</li>'
+            f'<li><b>해석 포인트</b>: 이 지표는 최종위험점수와의 절대상관이 <b>{fmt_num(g["최적lag절대상관"], 3)}</b>로 크게 나타났습니다.</li>'
+            f'</ul>'
+            f'<div style="margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,0.72);border:1px dashed #D9DFF0;">'
+            f'<div style="font-weight:700;color:#4D3C86;margin-bottom:6px;">🛠️ 실무 활용 예시</div>'
+            f'<ol style="margin:0;padding-left:20px;">'
+            f'<li>월간 조기경보 보고서에 해당 지표를 별도 선행지표로 포함</li>'
+            f'<li>최적 lag 개월수만큼 앞서 임계치 이탈 여부를 점검</li>'
+            f'<li>6번 메뉴의 대응 시뮬레이터에서 같은 축 대응전략과 연결해 사전 대응 시점을 설정</li>'
+            f'</ol></div>'
+        )
         render_section_card("활용 가이드", guide_html, tone="purple", icon="📘")
 elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
     st.header("6. 기업 대응 우선순위 추천 / 시뮬레이터")
@@ -1288,66 +1235,33 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
             c9.metric("🔥 현재 관리강도", fmt_num(sim["old_strength"]))
             c10.metric("🛠️ 시뮬레이션 후 관리강도", fmt_num(sim["new_strength"]))
 
-            overview_html = f"""
-            <div style="margin-bottom:8px;">
-                <b>선택된 대표 충격축</b>: <code>{dominant_axis_name}</code>
-            </div>
-            <div style="margin-bottom:12px;">
-                <b>선택 대응유형 설명</b>: {sim['scenario_desc']}
-            </div>
-
-            <div style="
-                display:grid;
-                grid-template-columns: repeat(2, minmax(220px, 1fr));
-                gap:10px;
-                margin-top:6px;
-            ">
-                <div style="background:rgba(255,255,255,0.72); border:1px solid #D8E5F6; border-radius:12px; padding:10px 12px;">
-                    <div style="font-size:0.82rem; color:#5B7493;">대상 축</div>
-                    <div style="font-weight:800; color:#123B70;">{sim['target_col']}</div>
-                </div>
-                <div style="background:rgba(255,255,255,0.72); border:1px solid #D8E5F6; border-radius:12px; padding:10px 12px;">
-                    <div style="font-size:0.82rem; color:#5B7493;">해당 월 축 점수</div>
-                    <div style="font-weight:800; color:#123B70;">{fmt_num(sim['axis_val'])}</div>
-                </div>
-                <div style="background:rgba(255,255,255,0.72); border:1px solid #D8E5F6; border-radius:12px; padding:10px 12px;">
-                    <div style="font-size:0.82rem; color:#5B7493;">체인별 최종가중치</div>
-                    <div style="font-weight:800; color:#123B70;">{fmt_num(sim['axis_weight'], 4)}</div>
-                </div>
-                <div style="background:rgba(255,255,255,0.72); border:1px solid #D8E5F6; border-radius:12px; padding:10px 12px;">
-                    <div style="font-size:0.82rem; color:#5B7493;">대응유형별 기준개선율</div>
-                    <div style="font-weight:800; color:#123B70;">{fmt_pct(sim['impact_rate'] * 100, 1)}</div>
-                </div>
-            </div>
-
-            <div style="
-                margin-top:12px;
-                padding:10px 12px;
-                border-radius:12px;
-                background:rgba(255,255,255,0.72);
-                border:1px dashed #CFE0F5;
-            ">
-                <div><b>원점수 감소 계산식</b>: 축 점수 × 최종가중치 × 기준개선율</div>
-                <div style="margin-top:4px;"><b>대체조달가능성 추가조정</b>: +{fmt_num(sim['alt_plus'])}점</div>
-            </div>
-            """
+            overview_html = (
+                f'<div style="margin-bottom:8px;"><b>선택된 대표 충격축</b>: <code>{dominant_axis_name}</code></div>'
+                f'<div style="margin-bottom:12px;"><b>선택 대응유형 설명</b>: {sim["scenario_desc"]}</div>'
+                f'<div style="display:grid;grid-template-columns:repeat(2, minmax(220px, 1fr));gap:10px;margin-top:6px;">'
+                f'<div style="background:rgba(255,255,255,0.72);border:1px solid #D8E5F6;border-radius:12px;padding:10px 12px;"><div style="font-size:0.82rem;color:#5B7493;">대상 축</div><div style="font-weight:800;color:#123B70;">{sim["target_col"]}</div></div>'
+                f'<div style="background:rgba(255,255,255,0.72);border:1px solid #D8E5F6;border-radius:12px;padding:10px 12px;"><div style="font-size:0.82rem;color:#5B7493;">해당 월 축 점수</div><div style="font-weight:800;color:#123B70;">{fmt_num(sim["axis_val"])}</div></div>'
+                f'<div style="background:rgba(255,255,255,0.72);border:1px solid #D8E5F6;border-radius:12px;padding:10px 12px;"><div style="font-size:0.82rem;color:#5B7493;">체인별 최종가중치</div><div style="font-weight:800;color:#123B70;">{fmt_num(sim["axis_weight"], 4)}</div></div>'
+                f'<div style="background:rgba(255,255,255,0.72);border:1px solid #D8E5F6;border-radius:12px;padding:10px 12px;"><div style="font-size:0.82rem;color:#5B7493;">대응유형별 기준개선율</div><div style="font-weight:800;color:#123B70;">{fmt_pct(sim["impact_rate"] * 100, 1)}</div></div>'
+                f'</div>'
+                f'<div style="margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,0.72);border:1px dashed #CFE0F5;">'
+                f'<div><b>원점수 감소 계산식</b>: 축 점수 × 최종가중치 × 기준개선율</div>'
+                f'<div style="margin-top:4px;"><b>대체조달가능성 추가조정</b>: +{fmt_num(sim["alt_plus"])}점</div>'
+                f'</div>'
+            )
             render_section_card("객관적 반영 기준", overview_html, tone="blue", icon="🧪")
 
-            basis_html = f"""
-            <ul style="margin:0; padding-left:20px;">
-                <li>{sim['scenario_basis']}</li>
-            </ul>
-            """
+            basis_html = f'<ul style="margin:0;padding-left:20px;"><li>{sim["scenario_basis"]}</li></ul>'
             render_section_card("이 대응유형에 대한 근거", basis_html, tone="green", icon="🧾")
 
             if sim["recommended_lag"] is not None:
-                signal_html = f"""
-                <ul style="margin:0; padding-left:20px;">
-                    <li>이 대응유형은 주로 <b>{sim['axis']} 축</b>과 연결됩니다.</li>
-                    <li>관련 선행지표의 대표 최적 lag를 보면, <b>약 {sim['recommended_lag']}개월 전부터 대응을 착수하는 것이 상대적으로 유리</b>합니다.</li>
-                    <li>즉, 같은 축의 선행지표가 경계수준에 근접하면 실제 조달·계약·물류 대응을 그 시점 이전부터 준비하는 방식으로 활용할 수 있습니다.</li>
-                </ul>
-                """
+                signal_html = (
+                    f'<ul style="margin:0;padding-left:20px;">'
+                    f'<li>이 대응유형은 주로 <b>{sim["axis"]} 축</b>과 연결됩니다.</li>'
+                    f'<li>관련 선행지표의 대표 최적 lag를 보면, <b>약 {sim["recommended_lag"]}개월 전부터 대응을 착수하는 것이 상대적으로 유리</b>합니다.</li>'
+                    f'<li>즉, 같은 축의 선행지표가 경계수준에 근접하면 실제 조달·계약·물류 대응을 그 시점 이전부터 준비하는 방식으로 활용할 수 있습니다.</li>'
+                    f'</ul>'
+                )
                 render_section_card("선행신호 연계 제안", signal_html, tone="orange", icon="🔗")
 
             if sim["signal_table"] is not None and not sim["signal_table"].empty:
