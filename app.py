@@ -76,6 +76,20 @@ def fmt_pct(v, digits=2):
         return "-"
     return f"{float(v):,.{digits}f}%"
 
+
+
+def prepare_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None:
+        return df
+    out = df.copy()
+    out = out.replace([np.inf, -np.inf], np.nan)
+    for c in out.columns:
+        if out[c].dtype == "object":
+            sample = out[c].dropna().head(100)
+            sample_types = {type(v) for v in sample}
+            if len(sample_types) > 1 or any(t in (list, dict, set, tuple, bytes, bytearray) for t in sample_types):
+                out[c] = out[c].apply(lambda v: "" if pd.isna(v) else str(v))
+    return out
 def safe_ym(x, year=None, month=None):
     if pd.notna(year) and pd.notna(month):
         try:
@@ -195,9 +209,9 @@ def info_box(title, bullets):
     li = "".join([f"<li>{b}</li>" for b in bullets])
     st.markdown(
         f"""
-        <div class="interpret-box">
-            <div class="interpret-title">🧭 {title}</div>
-            <ul class="interpret-list">{li}</ul>
+        <div style="border:1px solid rgba(128,128,128,0.25); border-radius:12px; padding:14px 16px; margin-bottom:14px;">
+            <div style="font-weight:700; margin-bottom:8px;">{title}</div>
+            <ul style="margin-top:0; padding-left:18px; line-height:1.7; font-size:0.96rem;">{li}</ul>
         </div>
         """,
         unsafe_allow_html=True
@@ -206,151 +220,14 @@ def info_box(title, bullets):
 def style_metric_container():
     st.markdown("""
     <style>
-    :root {
-        --brand-navy:#103B73;
-        --brand-blue:#1E5AA8;
-        --brand-sky:#EAF3FF;
-        --brand-red:#D94B4B;
-        --brand-green:#159A6C;
-        --brand-purple:#7C58B3;
-        --brand-gold:#F2B94B;
-        --card-bg:#FFFFFF;
-        --soft-border:#DCE7F5;
-    }
-
-    .interpret-box{
-        background: linear-gradient(135deg, #F5F9FF 0%, #EEF6FF 60%, #F9FBFF 100%);
-        border:1px solid #CFE0F5;
-        border-left: 8px solid var(--brand-blue);
-        border-radius:18px;
-        padding:18px 20px 16px 20px;
-        margin-bottom:16px;
-        box-shadow:0 8px 18px rgba(16,59,115,0.08);
-    }
-    .interpret-title{
-        font-weight:800;
-        color:#123B70;
-        margin-bottom:10px;
-        font-size:1.02rem;
-        letter-spacing:-0.01em;
-    }
-    .interpret-list{
-        margin:0;
-        padding-left:20px;
-        line-height:1.75;
-        font-size:0.97rem;
-        color:#1F2D3D;
-    }
-
     div[data-testid="stMetric"] {
-        background: linear-gradient(180deg, #FFFFFF 0%, #F6FAFF 100%);
-        border: 1px solid var(--soft-border);
-        border-top: 4px solid var(--brand-blue);
-        padding: 14px 16px;
-        border-radius: 18px;
-        box-shadow: 0 8px 18px rgba(16,59,115,0.08);
-        min-height: 118px;
-    }
-    div[data-testid="stMetricLabel"] {
-        font-weight:700;
-    }
-    div[data-testid="stMetricValue"] {
-        color:#0F2744;
-    }
-    div[data-testid="stCaptionContainer"] p{
-        color:#5A6E86 !important;
-        font-size:0.82rem !important;
-        line-height:1.35rem !important;
-    }
-    .dashboard-note{
-        margin-top:8px;
-        padding:10px 12px;
-        border-radius:12px;
-        background:#F7FAFE;
-        border:1px dashed #C9DBF2;
-        color:#4A6078;
-        font-size:0.90rem;
-    }
-    .story-line{
-        margin: 8px 0 12px 0;
+        background-color: rgba(255,255,255,0.04);
+        border: 1px solid rgba(128,128,128,0.25);
         padding: 12px 14px;
-        background: linear-gradient(90deg, #F6F4FF 0%, #FBFAFF 100%);
-        border:1px solid #DDD4F4;
-        border-left:6px solid var(--brand-purple);
-        border-radius:14px;
-        color:#4A3C71;
-        font-size:0.93rem;
-        line-height:1.55;
+        border-radius: 12px;
     }
     </style>
     """, unsafe_allow_html=True)
-
-def get_table_theme(theme="blue"):
-    themes = {
-        "blue": {"header": "#EAF3FF", "accent": "#1E5AA8", "row_alt": "#F8FBFF", "cmap": "Blues"},
-        "teal": {"header": "#EAFBF7", "accent": "#159A6C", "row_alt": "#F5FFFC", "cmap": "BuGn"},
-        "purple": {"header": "#F3EEFF", "accent": "#7C58B3", "row_alt": "#FAF7FF", "cmap": "Purples"},
-        "orange": {"header": "#FFF4E8", "accent": "#E07A1F", "row_alt": "#FFF9F3", "cmap": "Oranges"},
-        "gold": {"header": "#FFF8E1", "accent": "#D6A21D", "row_alt": "#FFFDF4", "cmap": "YlOrBr"},
-    }
-    return themes.get(theme, themes["blue"])
-
-def style_table(df, theme="blue"):
-    if df is None or df.empty:
-        return df
-    meta = get_table_theme(theme)
-    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-    styler = (
-        df.style
-        .set_table_styles([
-            {"selector": "thead th", "props": [
-                ("background-color", meta["header"]),
-                ("color", meta["accent"]),
-                ("font-weight", "700"),
-                ("border-bottom", f"2px solid {meta['accent']}"),
-                ("text-align", "center")
-            ]},
-            {"selector": "tbody td", "props": [
-                ("border-bottom", "1px solid #E8EEF6"),
-                ("padding", "7px 10px")
-            ]},
-            {"selector": "tbody tr:nth-child(even)", "props": [
-                ("background-color", meta["row_alt"])
-            ]}
-        ])
-        .set_properties(**{
-            "font-size": "0.92rem",
-            "border": "none"
-        })
-    )
-    if numeric_cols:
-        try:
-            styler = styler.background_gradient(cmap=meta["cmap"], subset=numeric_cols, low=0.9, high=0.1)
-        except Exception:
-            pass
-    if "체인구분" in df.columns:
-        def color_chain(v):
-            if str(v) == "납산배터리군":
-                return "background-color:#EAF3FF; color:#1E5AA8; font-weight:700;"
-            if str(v) == "리튬이온배터리군":
-                return "background-color:#FFF0F0; color:#C53D3D; font-weight:700;"
-            return ""
-        styler = styler.map(color_chain, subset=["체인구분"])
-    if "상대적_우선관리대상" in df.columns:
-        def color_priority(v):
-            if str(v) == "Y":
-                return "background-color:#FFEAEA; color:#C53D3D; font-weight:800;"
-            if str(v) == "N":
-                return "background-color:#ECFBF5; color:#159A6C; font-weight:700;"
-            return ""
-        styler = styler.map(color_priority, subset=["상대적_우선관리대상"])
-    return styler
-
-def note_box(text):
-    st.markdown(f'<div class="dashboard-note">ℹ️ {text}</div>', unsafe_allow_html=True)
-
-def story_line(text):
-    st.markdown(f'<div class="story-line">📝 {text}</div>', unsafe_allow_html=True)
 
 def month_chain_slice(df, month=None, chain=None):
     tmp = df.copy()
@@ -939,20 +816,20 @@ if menu == "1. 종합 상황판":
 
         m1, m2, m3, m4, m5, m6 = st.columns(6)
         with m1:
-            st.metric("📌 최종위험점수(원점수)", fmt_num(r["최종위험점수(원점수)"]))
+            st.metric("최종위험점수(원점수)", fmt_num(r["최종위험점수(원점수)"]))
         with m2:
-            st.metric("📈 상대위험지수", fmt_num(r["상대위험지수(정규화값)"]), r["최종경보등급"])
+            st.metric("상대위험지수", fmt_num(r["상대위험지수(정규화값)"]), r["최종경보등급"])
         with m3:
-            st.metric("🚨 우선관리대상" if str(r["상대적_우선관리대상"])=="Y" else "✅ 우선관리대상", str(r["상대적_우선관리대상"]))
+            st.metric("우선관리대상", str(r["상대적_우선관리대상"]))
             st.caption(metric_help_text("우선관리대상", r))
         with m4:
-            st.metric("🔥 관리강도", fmt_num(r["우선관리강도"]))
+            st.metric("관리강도", fmt_num(r["우선관리강도"]))
             st.caption(metric_help_text("관리강도", r))
         with m5:
-            st.metric("⬆️ Q75 초과폭", fmt_num(r["Q75_초과폭"]))
+            st.metric("Q75 초과폭", fmt_num(r["Q75_초과폭"]))
             st.caption(metric_help_text("Q75초과폭", r))
         with m6:
-            st.metric("⬇️ Q25 미달폭", fmt_num(r["Q25_미달폭"]))
+            st.metric("Q25 미달폭", fmt_num(r["Q25_미달폭"]))
             st.caption(metric_help_text("Q25미달폭", r))
 
         contrib = pd.DataFrame({
@@ -984,10 +861,10 @@ if menu == "1. 종합 상황판":
 
     st.markdown("### 체인별 종합표")
     st.dataframe(
-        summary[[
+        prepare_for_display(summary[[
             "체인구분", "최종위험점수(원점수)", "상대위험지수(정규화값)", "최종경보등급",
             "상대적_우선관리대상", "보정사유", "Q75_초과폭", "Q25_미달폭", "우선관리강도"
-        ]],
+        ]]),
         use_container_width=True,
         hide_index=True
     )
@@ -1002,7 +879,7 @@ elif menu == "2. 체인별 심층 분석":
     ])
 
     st.subheader("체인별 기준선 비교")
-    st.dataframe(style_table(compare, theme="blue"), use_container_width=True, hide_index=True)
+    st.dataframe(prepare_for_display(compare), use_container_width=True, hide_index=True)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -1073,8 +950,7 @@ elif menu == "3. 국가/공급선 상세 분석":
             st.plotly_chart(fig2, use_container_width=True)
 
         out_cols = [c for c in ["국가명", "지역권", "FTA여부", "상위공급국여부", "국가별수입비중", "국가수입금액", "기본평가점수", "국가기본위험_평가등급", "최종보정점수", "국가공급선_최종판정", "비고"] if c in show.columns]
-        st.dataframe(style_table(show[out_cols], theme="teal"), use_container_width=True, hide_index=True)
-        note_box("국가별수입비중은 국가별 공급선의 상대적 중요도를 보여주는 비교지표입니다. 원천 데이터의 집계 구조상 화면상 합계가 100을 초과해 보일 수 있으므로, 절대합보다는 국가 간 상대 비교 중심으로 해석하는 것이 적절합니다.")
+        st.dataframe(prepare_for_display(show[out_cols]), use_container_width=True, hide_index=True)
 
 elif menu == "4. 충격 원인 추적":
     st.header("4. 충격 원인 추적")
@@ -1111,7 +987,7 @@ elif menu == "4. 충격 원인 추적":
 
         tpu_story = get_tpu_month_story(tpu, selected_month)
         if tpu_story:
-            story_line(f"정책이벤트리스크 서사배경 ({selected_month}) : {tpu_story}")
+            st.caption(f"정책이벤트리스크 서사배경 ({selected_month}): {tpu_story}")
 
         st.markdown(
             f"- 상대위험지수 분위수 경계: **Q25 ({fmt_num(crow['상대위험지수_Q25'])}) / Q50 ({fmt_num(crow['상대위험지수_Q50'])}) / Q75 ({fmt_num(crow['상대위험지수_Q75'])})**  \n"
@@ -1148,7 +1024,7 @@ elif menu == "5. 선행 신호 후보 탐지":
             fig2 = px.line(tmp, x="lag개월", y="상관계수", markers=True, title=f"{selected_chain} · {sel_signal} lag별 상관")
             st.plotly_chart(fig2, use_container_width=True)
 
-    st.dataframe(style_table(rank_df, theme="purple"), use_container_width=True, hide_index=True)
+    st.dataframe(prepare_for_display(rank_df), use_container_width=True, hide_index=True)
 
     st.subheader("활용 가이드")
     if not rank_df.empty:
@@ -1192,11 +1068,11 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
 
     st.subheader("현재 우선순위 추천")
     st.dataframe(
-        view_df[[
+        prepare_for_display(view_df[[
             "연월", "체인구분", "최종위험점수(원점수)", "상대위험지수(정규화값)",
             "대체조달가능성_점수", "Q75_초과폭", "Q25_미달폭",
             "우선관리강도", "상대적_우선관리대상", "보정사유", "추천우선순위"
-        ]],
+        ]]),
         use_container_width=True,
         hide_index=True
     )
@@ -1247,20 +1123,20 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
             sim = simulate_intervention(base, base_panel, entropy, panel, lead_compare, action_type)
 
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("📌 현재 최종위험점수(원점수)", fmt_num(sim["old_raw"]))
-            c2.metric("🧪 시뮬레이션 후 원점수", fmt_num(sim["new_raw"]), f"{fmt_num(sim['new_raw'] - sim['old_raw'])}")
-            c3.metric("📈 현재 상대위험지수", fmt_num(sim["old_rel"]))
-            c4.metric("📊 시뮬레이션 후 상대위험지수", fmt_num(sim["new_rel"]), f"{fmt_num(sim['new_rel'] - sim['old_rel'])}")
+            c1.metric("현재 최종위험점수(원점수)", fmt_num(sim["old_raw"]))
+            c2.metric("시뮬레이션 후 원점수", fmt_num(sim["new_raw"]), f"{fmt_num(sim['new_raw'] - sim['old_raw'])}")
+            c3.metric("현재 상대위험지수", fmt_num(sim["old_rel"]))
+            c4.metric("시뮬레이션 후 상대위험지수", fmt_num(sim["new_rel"]), f"{fmt_num(sim['new_rel'] - sim['old_rel'])}")
 
             c5, c6, c7, c8 = st.columns(4)
-            c5.metric("🔁 현재 대체조달가능성", fmt_num(sim["old_alt"]))
-            c6.metric("🧭 시뮬레이션 후 대체조달가능성", fmt_num(sim["new_alt"]), f"{fmt_num(sim['new_alt'] - sim['old_alt'])}")
-            c7.metric("🚨 현재 우선관리대상" if str(sim["old_priority"])=="Y" else "✅ 현재 우선관리대상", str(sim["old_priority"]))
-            c8.metric("🚨 시뮬레이션 후 우선관리대상" if str(sim["new_priority"])=="Y" else "✅ 시뮬레이션 후 우선관리대상", str(sim["new_priority"]))
+            c5.metric("현재 대체조달가능성", fmt_num(sim["old_alt"]))
+            c6.metric("시뮬레이션 후 대체조달가능성", fmt_num(sim["new_alt"]), f"{fmt_num(sim['new_alt'] - sim['old_alt'])}")
+            c7.metric("현재 우선관리대상", str(sim["old_priority"]))
+            c8.metric("시뮬레이션 후 우선관리대상", str(sim["new_priority"]))
 
             c9, c10 = st.columns(2)
-            c9.metric("🔥 현재 관리강도", fmt_num(sim["old_strength"]))
-            c10.metric("🛠️ 시뮬레이션 후 관리강도", fmt_num(sim["new_strength"]))
+            c9.metric("현재 관리강도", fmt_num(sim["old_strength"]))
+            c10.metric("시뮬레이션 후 관리강도", fmt_num(sim["new_strength"]))
 
             st.markdown(
                 f"""
@@ -1296,7 +1172,7 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
             if sim["signal_table"] is not None and not sim["signal_table"].empty:
                 st.markdown("##### 관련 선행신호 상위 후보")
                 st.dataframe(
-                    style_table(sim["signal_table"][["지표", "최적lag개월", "최적lag절대상관", "최적lag상관"]], theme="orange"),
+                    prepare_for_display(sim["signal_table"][["지표", "최적lag개월", "최적lag절대상관", "최적lag상관"]]),
                     use_container_width=True,
                     hide_index=True
                 )
@@ -1335,10 +1211,10 @@ elif menu == "7. 대체국 추천 시스템":
             st.plotly_chart(fig2, use_container_width=True)
 
         st.dataframe(
-            style_table(cand[[
+            prepare_for_display(cand[[
                 "국가명", "지역권", "FTA여부", "상위공급국여부", "국가별수입비중",
                 "최종보정점수", "국가기본위험_평가등급", "국가공급선_최종판정", "추천점수"
-            ]], theme="gold"),
+            ]]),
             use_container_width=True,
             hide_index=True
         )
@@ -1363,7 +1239,7 @@ elif menu == "8. 원천데이터 탐색 / 다운로드":
     else:
         sheet_df = ensure_ym_column(clean_columns(data["sheets"][selected_sheet].copy()))
 
-    st.dataframe(sheet_df, use_container_width=True, hide_index=True)
+    st.dataframe(prepare_for_display(sheet_df), use_container_width=True, hide_index=True)
 
     st.download_button(
         "현재 시트 CSV 다운로드",
@@ -1390,24 +1266,24 @@ elif menu == "9. 데이터 검증 / 방법론":
     tab1, tab2, tab3, tab4 = st.tabs(["방법론", "체인별 가중치", "정규화 검증", "선택 조건 감사"])
 
     with tab1:
-        st.dataframe(method, use_container_width=True, hide_index=True)
+        st.dataframe(prepare_for_display(method), use_container_width=True, hide_index=True)
 
     with tab2:
         stage_options = entropy["단계"].dropna().astype(str).unique().tolist() if not entropy.empty and "단계" in entropy.columns else []
         if stage_options:
             stage = st.selectbox("가중치 단계 선택", stage_options)
             w = entropy[entropy["단계"] == stage].copy()
-            st.dataframe(w, use_container_width=True, hide_index=True)
+            st.dataframe(prepare_for_display(w), use_container_width=True, hide_index=True)
             st.markdown("**가중치 합 점검**")
-            st.dataframe(w.groupby(["단계", "체인구분"], as_index=False)["가중치"].sum(), use_container_width=True, hide_index=True)
+            st.dataframe(prepare_for_display(w.groupby(["단계", "체인구분"], as_index=False)["가중치"].sum()), use_container_width=True, hide_index=True)
         else:
             st.warning("가중치 단계 정보를 찾지 못했습니다.")
 
     with tab3:
-        st.dataframe(norm_check, use_container_width=True, hide_index=True)
+        st.dataframe(prepare_for_display(norm_check), use_container_width=True, hide_index=True)
         if norm_audit is not None and not norm_audit.empty:
             st.markdown("**추가 정규화 감사 시트**")
-            st.dataframe(norm_audit, use_container_width=True, hide_index=True)
+            st.dataframe(prepare_for_display(norm_audit), use_container_width=True, hide_index=True)
 
     with tab4:
         prow = panel_month[panel_month["체인구분"] == selected_chain]
@@ -1448,4 +1324,4 @@ elif menu == "9. 데이터 검증 / 방법론":
                 ["현재 관리강도", arow["우선관리강도"]],
             ], columns=["항목", "값"])
 
-            st.dataframe(audit_df, use_container_width=True, hide_index=True)
+            st.dataframe(prepare_for_display(audit_df), use_container_width=True, hide_index=True)
