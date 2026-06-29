@@ -213,7 +213,6 @@ def style_metric_container():
         --brand-red: #D94B4B;
         --brand-green: #159A6C;
         --brand-purple: #7B61C9;
-        --brand-gold: #D9A227;
         --soft-border: #D7E4F5;
     }
 
@@ -265,6 +264,16 @@ def style_metric_container():
         color: #60758C !important;
     }
 
+    div[data-testid="stDataFrame"] [role="columnheader"] {
+        background-color: #EAF3FF !important;
+        color: #1E5AA8 !important;
+        font-weight: 700 !important;
+        border-bottom: 1px solid #CFE0F5 !important;
+    }
+    div[data-testid="stDataFrame"] [role="gridcell"] {
+        border-color: #EEF3F8 !important;
+    }
+
     .inline-note {
         margin-top: 8px;
         padding: 10px 12px;
@@ -294,56 +303,6 @@ def note_box(text):
 
 def story_box(text):
     st.markdown(f'<div class="story-box">📝 {text}</div>', unsafe_allow_html=True)
-
-def style_table(df: pd.DataFrame, theme="blue"):
-    if df is None or df.empty:
-        return df
-
-    color_map = {
-        "blue": {"header": "#EAF3FF", "text": "#1F5FAF", "alt": "#F8FBFF", "cmap": "Blues"},
-        "green": {"header": "#EAFBF5", "text": "#15845C", "alt": "#F6FFFB", "cmap": "BuGn"},
-        "purple": {"header": "#F2ECFF", "text": "#6D4CC2", "alt": "#FBF9FF", "cmap": "Purples"},
-        "orange": {"header": "#FFF2E8", "text": "#C96A1A", "alt": "#FFF9F4", "cmap": "Oranges"},
-        "gold": {"header": "#FFF8E7", "text": "#A97A00", "alt": "#FFFDF6", "cmap": "YlOrBr"},
-        "neutral": {"header": "#F5F7FA", "text": "#516173", "alt": "#FBFCFE", "cmap": "Greys"},
-    }
-    meta = color_map.get(theme, color_map["blue"])
-
-    out = df.copy()
-    out = out.replace([np.inf, -np.inf], np.nan)
-    for c in out.columns:
-        if out[c].dtype == "object":
-            out[c] = out[c].astype(str)
-
-    styler = (
-        out.style
-        .set_table_styles([
-            {"selector": "thead th", "props": [
-                ("background-color", meta["header"]),
-                ("color", meta["text"]),
-                ("font-weight", "700"),
-                ("border-bottom", f"2px solid {meta['text']}"),
-                ("text-align", "center")
-            ]},
-            {"selector": "tbody tr:nth-child(even)", "props": [
-                ("background-color", meta["alt"])
-            ]},
-            {"selector": "tbody td", "props": [
-                ("border-bottom", "1px solid #E9EEF5"),
-                ("padding", "7px 10px")
-            ]}
-        ])
-        .set_properties(**{"font-size": "0.92rem", "border": "none"})
-    )
-
-    num_cols = [c for c in out.columns if pd.api.types.is_numeric_dtype(out[c])]
-    if num_cols:
-        try:
-            styler = styler.background_gradient(cmap=meta["cmap"], subset=num_cols, low=0.85, high=0.15)
-        except Exception:
-            pass
-
-    return styler
 
 def month_chain_slice(df, month=None, chain=None):
     tmp = df.copy()
@@ -952,11 +911,7 @@ if menu == "1. 종합 상황판":
             "축": ["가격리스크점수", "수급리스크점수", "물류리스크점수", "정책이벤트리스크점수"],
             "점수": [r["가격리스크점수"], r["수급리스크점수"], r["물류리스크점수"], r["정책이벤트리스크점수"]]
         })
-        fig = px.bar(
-            contrib, x="축", y="점수", color="축",
-            color_discrete_map=AXIS_COLOR_MAP,
-            title=f"{chain} · 최종위험점수 구성축"
-        )
+        fig = px.bar(contrib, x="축", y="점수", color="축", color_discrete_map=AXIS_COLOR_MAP, title=f"{chain} · 최종위험점수 구성축")
         fig.update_layout(showlegend=False, height=320)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -971,19 +926,12 @@ if menu == "1. 종합 상황판":
         color_discrete_map=CHAIN_COLOR_MAP,
         hover_data=["Q75_초과폭", "Q25_미달폭", "우선관리강도", "보정사유"]
     )
-
     for _, r in summary.iterrows():
         fig2.add_hline(y=r["상대위험지수_Q75"], line_dash="dot", line_color=CHAIN_COLOR_MAP.get(r["체인구분"], "#999"))
         fig2.add_vline(x=r["대체조달가능성_Q25"], line_dash="dot", line_color=CHAIN_COLOR_MAP.get(r["체인구분"], "#999"))
-
     for ann in build_quadrant_annotations_fixed():
         fig2.add_annotation(**ann)
-
-    fig2.update_layout(
-        height=430,
-        xaxis_title="대체조달가능성 점수",
-        yaxis_title="상대위험지수(정규화값)"
-    )
+    fig2.update_layout(height=430, xaxis_title="대체조달가능성 점수", yaxis_title="상대위험지수(정규화값)")
     st.plotly_chart(fig2, use_container_width=True)
 
     st.markdown("### 체인별 종합표")
@@ -1006,54 +954,32 @@ elif menu == "2. 체인별 심층 분석":
     ])
 
     st.subheader("체인별 기준선 비교")
-    st.dataframe(style_table(compare, theme="blue"), use_container_width=True, hide_index=True)
+    st.dataframe(compare, use_container_width=True, hide_index=True)
 
     c1, c2 = st.columns(2)
     with c1:
         qdf = compare[["체인구분", "상대위험지수_Q25", "상대위험지수_Q50", "상대위험지수_Q75"]].copy()
         qdf = qdf.rename(columns={"상대위험지수_Q25": "Q25", "상대위험지수_Q50": "Q50", "상대위험지수_Q75": "Q75"})
         qdf = qdf.melt(id_vars="체인구분", var_name="구간", value_name="값")
-        fig = px.bar(
-            qdf, x="구간", y="값", color="체인구분",
-            barmode="group", color_discrete_map=CHAIN_COLOR_MAP,
-            title="체인별 상대위험지수 분위수"
-        )
+        fig = px.bar(qdf, x="구간", y="값", color="체인구분", barmode="group", color_discrete_map=CHAIN_COLOR_MAP, title="체인별 상대위험지수 분위수")
         fig.update_xaxes(tickangle=0)
         st.plotly_chart(fig, use_container_width=True)
 
     with c2:
         qdf2 = compare[["체인구분", "최종위험점수(원점수)_Q25", "최종위험점수(원점수)_Q50", "최종위험점수(원점수)_Q75"]].copy()
-        qdf2 = qdf2.rename(columns={
-            "최종위험점수(원점수)_Q25": "Q25",
-            "최종위험점수(원점수)_Q50": "Q50",
-            "최종위험점수(원점수)_Q75": "Q75"
-        })
+        qdf2 = qdf2.rename(columns={"최종위험점수(원점수)_Q25": "Q25", "최종위험점수(원점수)_Q50": "Q50", "최종위험점수(원점수)_Q75": "Q75"})
         qdf2 = qdf2.melt(id_vars="체인구분", var_name="구간", value_name="값")
-        fig2 = px.bar(
-            qdf2, x="구간", y="값", color="체인구분",
-            barmode="group", color_discrete_map=CHAIN_COLOR_MAP,
-            title="체인별 최종위험점수(원점수) 분위수"
-        )
+        fig2 = px.bar(qdf2, x="구간", y="값", color="체인구분", barmode="group", color_discrete_map=CHAIN_COLOR_MAP, title="체인별 최종위험점수(원점수) 분위수")
         fig2.update_xaxes(tickangle=0)
         st.plotly_chart(fig2, use_container_width=True)
 
     st.subheader("체인별 월별 추이")
     tab1, tab2 = st.tabs(["최종위험점수(원점수) 추이", "상대위험지수 추이"])
-
     with tab1:
-        fig3 = px.line(
-            panel, x="연월", y="최종위험점수(원점수)", color="체인구분",
-            markers=True, color_discrete_map=CHAIN_COLOR_MAP,
-            title="체인별 최종위험점수(원점수) 추이"
-        )
+        fig3 = px.line(panel, x="연월", y="최종위험점수(원점수)", color="체인구분", markers=True, color_discrete_map=CHAIN_COLOR_MAP, title="체인별 최종위험점수(원점수) 추이")
         st.plotly_chart(fig3, use_container_width=True)
-
     with tab2:
-        fig4 = px.line(
-            panel, x="연월", y="상대위험지수(정규화값)", color="체인구분",
-            markers=True, color_discrete_map=CHAIN_COLOR_MAP,
-            title="체인별 상대위험지수 추이"
-        )
+        fig4 = px.line(panel, x="연월", y="상대위험지수(정규화값)", color="체인구분", markers=True, color_discrete_map=CHAIN_COLOR_MAP, title="체인별 상대위험지수 추이")
         st.plotly_chart(fig4, use_container_width=True)
 
     st.subheader("4대 리스크 평균 비교")
@@ -1066,11 +992,7 @@ elif menu == "2. 체인별 심층 분석":
     }
     a = compare[["체인구분"] + axis_cols].melt(id_vars="체인구분", var_name="항목", value_name="값")
     a["항목"] = a["항목"].map(axis_map_name)
-    fig5 = px.bar(
-        a, x="항목", y="값", color="체인구분",
-        barmode="group", color_discrete_map=CHAIN_COLOR_MAP,
-        title="체인별 4대 리스크 평균 비교"
-    )
+    fig5 = px.bar(a, x="항목", y="값", color="체인구분", barmode="group", color_discrete_map=CHAIN_COLOR_MAP, title="체인별 4대 리스크 평균 비교")
     fig5.update_xaxes(tickangle=0)
     st.plotly_chart(fig5, use_container_width=True)
 
@@ -1093,41 +1015,18 @@ elif menu == "3. 국가/공급선 상세 분석":
         show = ctry_agg.head(top_n).copy()
 
         left, right = st.columns(2)
-
         with left:
-            fig = px.bar(
-                show.sort_values("국가별수입비중"),
-                x="국가별수입비중",
-                y="국가명",
-                orientation="h",
-                color="국가공급선_최종판정",
-                color_discrete_map=GRADE_COLOR_MAP,
-                title=f"{selected_month} {selected_chain} 국가별 수입비중"
-            )
+            fig = px.bar(show.sort_values("국가별수입비중"), x="국가별수입비중", y="국가명", orientation="h", color="국가공급선_최종판정", color_discrete_map=GRADE_COLOR_MAP, title=f"{selected_month} {selected_chain} 국가별 수입비중")
             st.plotly_chart(fig, use_container_width=True)
-
         with right:
-            fig2 = px.scatter(
-                show,
-                x="최종보정점수",
-                y="국가별수입비중",
-                color="FTA여부" if "FTA여부" in show.columns else None,
-                size=np.maximum(safe_numeric(show.get("국가수입금액", 1)).fillna(1), 1),
-                hover_data=[c for c in ["국가명", "지역권", "국가기본위험_평가등급", "국가공급선_최종판정"] if c in show.columns],
-                title="국가별 최종보정점수 vs 수입비중"
-            )
+            fig2 = px.scatter(show, x="최종보정점수", y="국가별수입비중", color="FTA여부" if "FTA여부" in show.columns else None, size=np.maximum(safe_numeric(show.get("국가수입금액", 1)).fillna(1), 1), hover_data=[c for c in ["국가명", "지역권", "국가기본위험_평가등급", "국가공급선_최종판정"] if c in show.columns], title="국가별 최종보정점수 vs 수입비중")
             fig2.update_xaxes(title="최종보정점수(낮을수록 상대적으로 안정)")
             fig2.update_yaxes(title="국가별 수입비중")
             st.plotly_chart(fig2, use_container_width=True)
 
-        out_cols = [c for c in [
-            "국가명", "지역권", "FTA여부", "상위공급국여부", "국가별수입비중",
-            "국가수입금액", "기본평가점수", "국가기본위험_평가등급",
-            "최종보정점수", "국가공급선_최종판정", "비고"
-        ] if c in show.columns]
-
-        st.dataframe(style_table(show[out_cols], theme="green"), use_container_width=True, hide_index=True)
-        note_box("국가별수입비중은 국가별 공급선의 상대적 중요도를 보여주는 비교지표입니다. 원천 데이터의 집계 구조상 화면상 합계가 100을 초과해 보일 수 있으므로, 절대합보다는 국가 간 상대 비교 중심으로 해석하는 것이 적절합니다.")
+        out_cols = [c for c in ["국가명", "지역권", "FTA여부", "상위공급국여부", "국가별수입비중", "국가수입금액", "기본평가점수", "국가기본위험_평가등급", "최종보정점수", "국가공급선_최종판정", "비고"] if c in show.columns]
+        st.dataframe(show[out_cols], use_container_width=True, hide_index=True)
+        note_box("국가별수입비중의 상대비교용 지표 특성상 화면상 합계가 100을 초과해 보일 수 있음")
 
 elif menu == "4. 충격 원인 추적":
     st.header("4. 충격 원인 추적")
@@ -1159,16 +1058,12 @@ elif menu == "4. 충격 원인 추적":
             "축": ["가격리스크점수", "수급리스크점수", "물류리스크점수", "정책이벤트리스크점수"],
             "값": [prow["가격리스크점수"], prow["수급리스크점수"], prow["물류리스크점수"], prow["정책이벤트리스크점수"]],
         })
-        fig = px.bar(
-            comp, x="축", y="값", color="축",
-            color_discrete_map=AXIS_COLOR_MAP,
-            title=f"{selected_month} {selected_chain} 4대 리스크"
-        )
+        fig = px.bar(comp, x="축", y="값", color="축", color_discrete_map=AXIS_COLOR_MAP, title=f"{selected_month} {selected_chain} 4대 리스크")
         st.plotly_chart(fig, use_container_width=True)
 
         tpu_story = get_tpu_month_story(tpu, selected_month)
         if tpu_story:
-            story_box(f"정책이벤트리스크 서사배경 ({selected_month}) : {tpu_story}")
+            story_box(f"정책이벤트리스크 서사배경 ({selected_month}): {tpu_story}")
 
         st.markdown(
             f"- 상대위험지수 분위수 경계: **Q25 ({fmt_num(crow['상대위험지수_Q25'])}) / Q50 ({fmt_num(crow['상대위험지수_Q50'])}) / Q75 ({fmt_num(crow['상대위험지수_Q75'])})**  \n"
@@ -1194,35 +1089,18 @@ elif menu == "5. 선행 신호 후보 탐지":
         rank_df["최적lag개월_문자"] = rank_df["최적lag개월"].astype(int).astype(str)
 
     c1, c2 = st.columns(2)
-
     with c1:
-        fig = px.bar(
-            rank_df.sort_values("최적lag절대상관"),
-            x="최적lag절대상관",
-            y="지표",
-            orientation="h",
-            color="최적lag개월_문자" if not rank_df.empty else None,
-            color_discrete_map=LAG_COLOR_MAP,
-            category_orders={"최적lag개월_문자": ["1", "2", "3", "4", "5", "6"]},
-            title=f"{selected_chain} 최적 lag 상위 후보"
-        )
+        fig = px.bar(rank_df.sort_values("최적lag절대상관"), x="최적lag절대상관", y="지표", orientation="h", color="최적lag개월_문자" if not rank_df.empty else None, color_discrete_map=LAG_COLOR_MAP, category_orders={"최적lag개월_문자": ["1", "2", "3", "4", "5", "6"]}, title=f"{selected_chain} 최적 lag 상위 후보")
         st.plotly_chart(fig, use_container_width=True)
-
     with c2:
         options = rank_df["지표"].tolist() if not rank_df.empty else []
         sel_signal = st.selectbox("세부 시차를 볼 지표 선택", options if options else [""])
         if sel_signal and not chain_detail.empty:
             tmp = chain_detail[chain_detail["지표"] == sel_signal].sort_values("lag개월").copy()
-            fig2 = px.line(
-                tmp,
-                x="lag개월",
-                y="상관계수",
-                markers=True,
-                title=f"{selected_chain} · {sel_signal} lag별 상관"
-            )
+            fig2 = px.line(tmp, x="lag개월", y="상관계수", markers=True, title=f"{selected_chain} · {sel_signal} lag별 상관")
             st.plotly_chart(fig2, use_container_width=True)
 
-    st.dataframe(style_table(rank_df, theme="purple"), use_container_width=True, hide_index=True)
+    st.dataframe(rank_df, use_container_width=True, hide_index=True)
 
     st.subheader("활용 가이드")
     if not rank_df.empty:
@@ -1262,7 +1140,6 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
         safe_numeric(view_df["상대위험지수(정규화값)"]).fillna(0) * 0.35 +
         (100 - safe_numeric(view_df["대체조달가능성_점수"]).fillna(0)) * 0.20
     )
-
     view_df = view_df.sort_values(["추천우선순위", "연월"], ascending=[False, True]).copy()
 
     st.subheader("현재 우선순위 추천")
@@ -1294,7 +1171,6 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
             st.warning("선택한 행의 PANEL_MONTHLY 데이터를 찾지 못했습니다.")
         else:
             base_panel = base_panel.iloc[0]
-
             dominant_axis_col = get_driver_axis(base_panel)
             dominant_axis_name = str(dominant_axis_col).replace("리스크점수", "") if dominant_axis_col else "수급"
 
@@ -1372,7 +1248,7 @@ elif menu == "6. 기업 대응 우선순위 추천 / 시뮬레이터":
             if sim["signal_table"] is not None and not sim["signal_table"].empty:
                 st.markdown("##### 관련 선행신호 상위 후보")
                 st.dataframe(
-                    style_table(sim["signal_table"][["지표", "최적lag개월", "최적lag절대상관", "최적lag상관"]], theme="orange"),
+                    sim["signal_table"][["지표", "최적lag개월", "최적lag절대상관", "최적lag상관"]],
                     use_container_width=True,
                     hide_index=True
                 )
@@ -1400,39 +1276,21 @@ elif menu == "7. 대체국 추천 시스템":
             np.where(cand["FTA여부"] == "Y", 15, 0) +
             np.where(cand["상위공급국여부"] == "Y", -5, 5)
         )
-
         cand = cand.sort_values(["추천점수", "최종보정점수"], ascending=[False, True]).copy()
 
         left, right = st.columns(2)
-
         with left:
-            fig = px.bar(
-                cand.head(15).sort_values("추천점수"),
-                x="추천점수",
-                y="국가명",
-                orientation="h",
-                color="FTA여부" if "FTA여부" in cand.columns else None,
-                title="대체국 추천 상위 후보"
-            )
+            fig = px.bar(cand.head(15).sort_values("추천점수"), x="추천점수", y="국가명", orientation="h", color="FTA여부" if "FTA여부" in cand.columns else None, title="대체국 추천 상위 후보")
             st.plotly_chart(fig, use_container_width=True)
-
         with right:
-            fig2 = px.scatter(
-                cand.head(30),
-                x="최종보정점수",
-                y="국가별수입비중",
-                color="FTA여부" if "FTA여부" in cand.columns else None,
-                size=np.maximum(safe_numeric(cand.head(30).get("국가수입금액", 1)).fillna(1), 1),
-                hover_data=[c for c in ["국가명", "국가기본위험_평가등급", "국가공급선_최종판정", "추천점수"] if c in cand.columns],
-                title="대체국 후보 분포"
-            )
+            fig2 = px.scatter(cand.head(30), x="최종보정점수", y="국가별수입비중", color="FTA여부" if "FTA여부" in cand.columns else None, size=np.maximum(safe_numeric(cand.head(30).get("국가수입금액", 1)).fillna(1), 1), hover_data=[c for c in ["국가명", "국가기본위험_평가등급", "국가공급선_최종판정", "추천점수"] if c in cand.columns], title="대체국 후보 분포")
             st.plotly_chart(fig2, use_container_width=True)
 
         st.dataframe(
-            style_table(cand[[
+            cand[[
                 "국가명", "지역권", "FTA여부", "상위공급국여부", "국가별수입비중",
                 "최종보정점수", "국가기본위험_평가등급", "국가공급선_최종판정", "추천점수"
-            ]], theme="gold"),
+            ]],
             use_container_width=True,
             hide_index=True
         )
@@ -1493,11 +1351,7 @@ elif menu == "9. 데이터 검증 / 방법론":
             w = entropy[entropy["단계"] == stage].copy()
             st.dataframe(w, use_container_width=True, hide_index=True)
             st.markdown("**가중치 합 점검**")
-            st.dataframe(
-                w.groupby(["단계", "체인구분"], as_index=False)["가중치"].sum(),
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(w.groupby(["단계", "체인구분"], as_index=False)["가중치"].sum(), use_container_width=True, hide_index=True)
         else:
             st.warning("가중치 단계 정보를 찾지 못했습니다.")
 
